@@ -55,7 +55,7 @@ public:
     void mark_completed(bool status);
 
 private:
-    std::string id_;                ///< Уникальный идентификатор задачи
+    char id_[19];                   ///< Уникальный идентификатор задачи (13 цифр + '_' + 4 цифры + '\0')
     std::string title_;             ///< Название задачи
     std::string description_;       ///< Описание задачи
     bool is_completed_;             ///< Статус выполнения задачи
