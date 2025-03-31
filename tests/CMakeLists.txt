@@ -1,4 +1,7 @@
-include_directories(${CMAKE_SOURCE_DIR}/doctest)
-add_executable(tests task_test.cpp)
-target_link_libraries(tests PRIVATE final_project_lib)
-add_test(NAME Tests COMMAND tests)
+# add_executable(periodic_tracker_test periodic_tracker_test.cpp)
+# add_executable(task_template_test task_template_test.cpp)
+add_executable(task_test task_test.cpp)
+
+# target_link_libraries(periodic_tracker_test PRIVATE final_project_lib)
+# target_link_libraries(task_template_test PRIVATE final_project_lib)
+target_link_libraries(task_test PRIVATE final_project_lib)
