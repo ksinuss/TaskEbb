@@ -4,20 +4,38 @@
 #include <chrono>
 #include <regex>
 
-TEST_CASE("Testing Task class initialization") {
-    SUBCASE("Default description") {
-        Task task("Buy milk");
-        
-        CHECK(task.get_title() == "Buy milk");
-        CHECK(task.get_description().empty());
-        CHECK_FALSE(task.is_completed());
-        CHECK(task.get_id().size() == 18); // 13 + _ + 4
-    }
+TEST_CASE("ID generation and validation") {
+    Task task1("Task 1");
+    Task task2("Task 2");
 
-    SUBCASE("Custom description") {
-        Task task("Write report", "Finish by Friday");
-        
-        CHECK(task.get_title() == "Write report");
-        CHECK(task.get_description() == "Finish by Friday");
-    }
+    CHECK(task1.get_id().size() == 18);
+    CHECK(std::regex_match(task1.get_id(), std::regex(R"(\d{13}_\d{4})")));
+    
+    CHECK(task1.get_id() != task2.get_id());
+}
+
+TEST_CASE("Empty title throws exception") {
+    CHECK_THROWS_AS(Task(""), std::invalid_argument);
+}
+
+TEST_CASE("Getters return correct values") {
+    Task task("Buy milk", "Urgent");
+
+    CHECK(task.get_title() == "Buy milk");
+    CHECK(task.get_description() == "Urgent");
+    CHECK(!task.is_completed());
+}
+
+TEST_CASE("Setting interval works correctly") {
+    Task task("Learn C++");
+    task.set_interval(std::chrono::hours(72));
+
+    CHECK(task.get_interval() == std::chrono::hours(72));
+}
+
+TEST_CASE("Marking task as completed") {
+    Task task("Read a book");
+    task.mark_completed(true);
+
+    CHECK(task.is_completed());
 }

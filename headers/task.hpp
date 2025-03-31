@@ -6,60 +6,66 @@
 
 /**
  * @class Task
- * @brief Хранит информацию о задаче: название, описание, статус выполнения, интервал повторения
+ * @brief Stores information about the task: name, description, completion status, repeat interval
  */
 class Task {
 public:
     /**
      * @brief Construct a new Task object
-     * @param title Название задачи (должно быть)
-     * @param description Описание задачи (пустое по умолчанию)
+     * @param title Task title (required)
+     * @param description Task description (empty by default)
      */
     Task(const std::string& title, const std::string& description = "");
     ~Task() = default;
 
     /**
      * @brief Get the id object
-     * @return Уникальный идентификатор задачи
+     * @return Unique task ID in "timestamp_titleprefix_random" format
      */
     std::string get_id() const;
 
     /**
      * @brief Get the title object
-     * @return Название задачи
+     * @return Task title as a string
      */
     std::string get_title() const;
 
     /**
      * @brief Get the description object
-     * @return Описание задачи
+     * @return Task description as a string
      */
     std::string get_description() const;
 
     /**
-     * @brief Возвращает статус выполнения задачи
-     * @return true, если задача выполнена, иначе false 
+     * @brief Get the interval object
+     * @return Interval in hours as std::chrono::hours 
+     */
+    std::chrono::hours get_interval() const;
+
+    /**
+     * @brief Check task completion status
+     * @return true if the task is completed, otherwise false 
      */
     bool is_completed() const;
 
     /**
-     * @brief Set the interval object (повторения задачи)
-     * @param interval Интервал (в часах)
+     * @brief Set the repetition interval
+     * @param interval New interval in hours
      */
     void set_interval(std::chrono::hours interval);
 
     /**
-     * @brief Отмечает статус выполнения задачи
-     * @param status true, если выполнена, иначе false
+     * @brief Update task completion status
+     * @param status status true for completed, false for incomplete
      */
     void mark_completed(bool status);
 
 private:
-    char id_[19];                   ///< Уникальный идентификатор задачи (13 цифр + '_' + 4 цифры + '\0')
-    std::string title_;             ///< Название задачи
-    std::string description_;       ///< Описание задачи
-    bool is_completed_;             ///< Статус выполнения задачи
-    std::chrono::hours interval_;   ///< Интервал повторения задачи
+    char id_[19];                   ///< Unique ID (13 digits + '_' + 4 digits + '\0')
+    std::string title_;             ///< Task title
+    std::string description_;       ///< Task description
+    bool is_completed_;             ///< Completion status
+    std::chrono::hours interval_;   ///< Repetition interval in hours
 };
 
 #endif

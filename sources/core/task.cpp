@@ -43,6 +43,10 @@ std::string Task::get_description() const {
     return description_;
 }
 
+std::chrono::hours Task::get_interval() const { 
+    return interval_; 
+}
+
 bool Task::is_completed() const {
     return is_completed_;
 } 
