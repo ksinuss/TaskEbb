@@ -2,7 +2,7 @@
 #define TASK_HPP
 
 #include <string>
-#include <chrono> // точное время, генерация id
+#include <chrono>
 
 /**
  * @class Task
@@ -44,7 +44,7 @@ public:
 
     /**
      * @brief Check task completion status
-     * @return true if the task is completed, otherwise false 
+     * @return True if the task is completed, otherwise false 
      */
     bool is_completed() const;
 
@@ -56,7 +56,7 @@ public:
 
     /**
      * @brief Update task completion status
-     * @param status status true for completed, false for incomplete
+     * @param status Status true for completed, false for incomplete
      */
     void mark_completed(bool status);
 
