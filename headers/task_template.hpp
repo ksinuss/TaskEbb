@@ -18,7 +18,7 @@ public:
         DAILY,
         WEEKLY,
         CUSTOM
-    }
+    };
 
     /**
      * @brief Construct a new Task Template object
@@ -61,6 +61,7 @@ private:
     RecurrenceType recurrence_type_;
     int custom_interval_hours_;
     mutable time_t last_generated_;     ///< Mutable to allow updating during const generate_tasks()
+    time_t get_step() const;
 };
 
 #endif
