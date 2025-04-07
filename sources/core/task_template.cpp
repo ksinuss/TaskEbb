@@ -13,14 +13,13 @@ std::vector<Task> TaskTemplate::generate_tasks(time_t up_to_timestamp) const {
     std::vector<Task> tasks;
     time_t current = last_generated_ > 0 ? last_generated_ : time(nullptr);
 
-    if (last_generated_ == 0 && current <= up_to_timestamp) {
+    if (last_generated_ == 0 && current < up_to_timestamp) {
         tasks.push_back(base_task_);
         current += get_step();
     }
 
-    while (current <= up_to_timestamp) {
-        Task new_task = base_task_;
-        tasks.push_back(new_task);
+    while (current < up_to_timestamp) {
+        tasks.push_back(base_task_);
         current += get_step();
     }
 
