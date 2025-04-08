@@ -11,7 +11,7 @@ include_directories(
 )
 
 add_library(final_project_lib STATIC
-    # sources/core/periodic_tracker.cpp
+    sources/core/periodic_tracker.cpp
     sources/core/task_template.cpp
     sources/core/task.cpp
 )
