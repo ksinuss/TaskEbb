@@ -7,23 +7,23 @@
 Task::Task(const std::string& title, const std::string& description)
     : title_(title), description_(description), is_completed_(false), interval_(std::chrono::hours(0))
 {
-    // check for empty title
+    // Check for empty title
     if (title.empty()) {
         throw std::invalid_argument("Title cannot be empty");
     }
 
-    ///< generate id
-    // get current time (in mlsec)
+    ///< Generate id
+    // Get current time (in mlsec)
     auto now = std::chrono::system_clock::now();
     auto duration = now.time_since_epoch();
     auto datetime = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
     
-    // generate random num
+    // Generate random num
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<uint16_t> dist(0, 9999);
 
-    // fixed-length id
+    // Fixed-length id
     std::snprintf(
         id_, sizeof(id_), 
         "%013lld_%04d", 
