@@ -59,6 +59,10 @@ public:
      * @param status Status true for completed, false for incomplete
      */
     void mark_completed(bool status);
+    
+    void set_id(const std::string& id);
+    void set_title(const std::string& title);
+    void set_description(const std::string& description);
 
 private:
     char id_[19];                   ///< Unique ID (13 digits + '_' + 4 digits + '\0')

@@ -6,6 +6,8 @@
 #include <string>
 #include <stdexcept>
 #include <functional>
+#include "task.hpp"
+// class Task;
 
 /**
  * @class DatabaseManager
@@ -25,6 +27,8 @@ public:
      */
     ~DatabaseManager();
 
+    void initialize();
+
     /**
      * @brief Saves a task to the specified table.
      * @tparam T Type of the task.
@@ -32,11 +36,10 @@ public:
      * @param table_name Name of the target table.
      * @param bindParameters Callback function to bind task parameters to the SQL statement.
      */
-    template <typename T>
     void saveTask(
-        const T& task,
+        const Task& task,
         const std::string& table_name,
-        const std::function<void(sqlite3_stmt*, const T&)>& bindParameters
+        const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters
     );
 
     /**
@@ -46,10 +49,9 @@ public:
      * @param rowMapper Callback function to map SQL result rows to task objects.
      * @return Vector of tasks.
      */
-    template <typename T>
-    std::vector<T> getAllTasks(
+    std::vector<Task> getAllTasks(
         const std::string& table_name,
-        const std::function<T(sqlite3_stmt*)>& rowMapper
+        const std::function<Task(sqlite3_stmt*)>& rowMapper
     );
 
     /**
@@ -59,11 +61,10 @@ public:
      * @param table_name Name of the target table.
      * @param bindParameters Callback function to bind task parameters to the SQL statement.
      */
-    template <typename T>
     void updateTask(
-        const T& task,
+        const Task& task,
         const std::string& table_name,
-        const std::function<void(sqlite3_stmt*, const T&)>& bindParameters
+        const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters
     );
 
     /**
@@ -73,17 +74,20 @@ public:
      */
     void deleteTask(const std::string& id, const std::string& table_name);
 
-    /**
-     * @brief Creates a table using the provided SQL schema.
-     * @param create_sql SQL CREATE TABLE statement.
-     */
-    void createTable(const std::string& create_sql);
+    void logAction(
+        const std::string& action_type,
+        const std::string& task_id,
+        const std::string& message
+    );
 
 private:
     sqlite3* db_;  ///< SQLite database connection handle
 
     void executeQuery(const std::string& sql);
     void throwOnError(int rc, const std::string& context);
+    
+    void bindTaskParameters(sqlite3_stmt* stmt, const Task& task);
+    Task mapTaskFromRow(sqlite3_stmt* stmt);
 };
 
 #endif

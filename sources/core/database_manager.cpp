@@ -4,14 +4,7 @@
 #include <stdexcept>
 #include <sstream>
 
-DatabaseManager::~DatabaseManager() {
-    if (db_) {
-        sqlite3_close(db_);
-        db_ = nullptr;
-    }
-}
-
-DatabaseManager::DatabaseManager(const std::string& db_path) {
+DatabaseManager::DatabaseManager(const std::string& db_path) : db_(nullptr) {
     int rc = sqlite3_open_v2(
         db_path.c_str(),
         &db_,
@@ -19,21 +12,32 @@ DatabaseManager::DatabaseManager(const std::string& db_path) {
         nullptr
     );
     throwOnError(rc, "open database");
+    initialize();
+}
 
-    createTable(
+DatabaseManager::~DatabaseManager() {
+    if (db_) {
+        sqlite3_close(db_);
+        db_ = nullptr;
+    }
+}
+
+void DatabaseManager::initialize() {
+    executeQuery(
         "CREATE TABLE IF NOT EXISTS tasks ("
         "id TEXT PRIMARY KEY, "
         "title TEXT NOT NULL, "
         "description TEXT, "
-        "is_completed INTEGER, "
-        "interval_hours INTEGER)"
+        "is_completed INTEGER DEFAULT 0, "
+        "interval_hours INTEGER DEFAULT 0);"
     );
 
-    createTable(
-        "CREATE TABLE IF NOT EXISTS templates ("
-        "base_task_id TEXT, "
-        "recurrence_type INTEGER, "
-        "custom_interval_hours INTEGER)"
+    executeQuery(
+        "CREATE TABLE IF NOT EXISTS logs ("
+        "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
+        "action_type TEXT, "
+        "task_id TEXT, "
+        "message TEXT);"
     );
 }
 
@@ -43,10 +47,6 @@ void DatabaseManager::throwOnError(int rc, const std::string& context) {
         oss << "SQLite error (" << context << "): " << sqlite3_errmsg(db_);
         throw std::runtime_error(oss.str());
     }
-}
-
-void DatabaseManager::createTable(const std::string& create_sql) {
-    executeQuery(create_sql);
 }
 
 void DatabaseManager::executeQuery(const std::string& sql) {
@@ -59,111 +59,111 @@ void DatabaseManager::executeQuery(const std::string& sql) {
     }
 }
 
-template <typename T>
-void DatabaseManager::saveTask(
-    const T& task,
-    const std::string& table_name,
-    const std::function<void(sqlite3_stmt*, const T&)>& bindParameters
-) {
-    std::string sql = "INSERT INTO " + table_name + " VALUES (?, ?, ?, ?, ?)";
-    sqlite3_stmt* stmt = nullptr;
+void DatabaseManager::saveTask(const Task& task, const std::string& table_name, const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters) {
+    const std::string sql = 
+        "INSERT INTO tasks (id, title, description, is_completed, interval_hours) "
+        "VALUES (?, ?, ?, ?, ?);";
     
+    sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
-    throwOnError(rc, "prepare insert");
+    throwOnError(rc, "prepare INSERT task");
 
-    bindParameters(stmt, task);
+    bindTaskParameters(stmt, task);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        throwOnError(rc, "execute insert");
+        throwOnError(rc, "execute INSERT task");
     }
-
     sqlite3_finalize(stmt);
 }
 
-template <typename T>
-std::vector<T> DatabaseManager::getAllTasks(
-    const std::string& table_name,
-    const std::function<T(sqlite3_stmt*)>& rowMapper
-) {
-    std::vector<T> result;
-    std::string sql = "SELECT * FROM " + table_name;
+std::vector<Task> DatabaseManager::getAllTasks(const std::string& table_name, const std::function<Task(sqlite3_stmt*)>& rowMapper) {
+    std::vector<Task> tasks;
+    const std::string sql = "SELECT * FROM tasks;";
     sqlite3_stmt* stmt = nullptr;
-
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
-    throwOnError(rc, "prepare select");
-
+    throwOnError(rc, "prepare SELECT tasks");
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        result.push_back(rowMapper(stmt));
+        tasks.push_back(mapTaskFromRow(stmt));
     }
-
     if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        throwOnError(rc, "fetch data");
+        throwOnError(rc, "fetch tasks");
     }
-
     sqlite3_finalize(stmt);
-    return result;
+    return tasks;
 }
 
-template <typename T>
-void DatabaseManager::updateTask(
-    const T& task,
-    const std::string& table_name,
-    const std::function<void(sqlite3_stmt*, const T&)>& bindParameters
-) {
-    std::string sql = 
-        "UPDATE " + table_name + " SET "
+void DatabaseManager::updateTask(const Task& task, const std::string& table_name, const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters) {
+    const std::string sql = 
+        "UPDATE tasks SET "
         "title = ?, description = ?, is_completed = ?, interval_hours = ? "
-        "WHERE id = ?";
-    
+        "WHERE id = ?;";
+
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
-    throwOnError(rc, "prepare update");
+    throwOnError(rc, "prepare UPDATE task");
 
-    bindParameters(stmt, task);
+    sqlite3_bind_text(stmt, 1, task.get_title().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, task.get_description().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, task.is_completed() ? 1 : 0);
+    sqlite3_bind_int(stmt, 4, task.get_interval().count());
+    sqlite3_bind_text(stmt, 5, task.get_id().c_str(), -1, SQLITE_TRANSIENT);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        throwOnError(rc, "execute update");
+        throwOnError(rc, "execute UPDATE task");
     }
-
     sqlite3_finalize(stmt);
 }
 
 void DatabaseManager::deleteTask(const std::string& id, const std::string& table_name) {
-    std::string sql = "DELETE FROM " + table_name + " WHERE id = ?";
+    const std::string sql = "DELETE FROM tasks WHERE id = ?;";
     sqlite3_stmt* stmt = nullptr;
-
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
-    throwOnError(rc, "prepare delete");
-
-    sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_STATIC);
-
+    throwOnError(rc, "prepare DELETE task");
+    sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        throwOnError(rc, "execute delete");
+        throwOnError(rc, "execute DELETE task");
     }
-
     sqlite3_finalize(stmt);
 }
 
-template void DatabaseManager::saveTask<Task>(
-    const Task&,
-    const std::string&,
-    const std::function<void(sqlite3_stmt*, const Task&)>&
-);
+void DatabaseManager::logAction(const std::string& action_type, const std::string& task_id, const std::string& message) {
+    const std::string sql = 
+        "INSERT INTO logs (action_type, task_id, message) "
+        "VALUES (?, ?, ?);";
+    
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    throwOnError(rc, "prepare INSERT log");
 
-template std::vector<Task> DatabaseManager::getAllTasks<Task>(
-    const std::string&,
-    const std::function<Task(sqlite3_stmt*)>&
-);
+    sqlite3_bind_text(stmt, 1, action_type.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, task_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, message.c_str(), -1, SQLITE_TRANSIENT);
 
-template void DatabaseManager::updateTask<Task>(
-    const Task&,
-    const std::string&,
-    const std::function<void(sqlite3_stmt*, const Task&)>&
-);
+    rc = sqlite3_step(stmt);
+    if (rc != SQLITE_DONE) {
+        throwOnError(rc, "execute INSERT log");
+    }
+    sqlite3_finalize(stmt);
+}
+
+void DatabaseManager::bindTaskParameters(sqlite3_stmt* stmt, const Task& task) {
+    sqlite3_bind_text(stmt, 1, task.get_id().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, task.get_title().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, task.get_description().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4, task.is_completed() ? 1 : 0);
+    sqlite3_bind_int(stmt, 5, task.get_interval().count());
+}
+
+Task DatabaseManager::mapTaskFromRow(sqlite3_stmt* stmt) {
+    Task task(
+        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title
+        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description
+    );
+    task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))); // id
+    task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
+    task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4)));
+    return task;
+}

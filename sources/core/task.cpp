@@ -3,6 +3,7 @@
 #include <random>
 #include <cstdio>
 #include <stdexcept>
+#include <cstring>
 
 Task::Task(const std::string& title, const std::string& description)
     : title_(title), description_(description), is_completed_(false), interval_(std::chrono::hours(0))
@@ -57,4 +58,21 @@ void Task::set_interval(std::chrono::hours interval) {
 
 void Task::mark_completed(bool status) {
     this->is_completed_ = status;
+}
+
+void Task::set_id(const std::string& id) {
+    size_t len = id.size() < 18 ? id.size() : 18;
+    strncpy(id_, id.c_str(), len);
+    id_[len] = '\0';
+}
+
+void Task::set_title(const std::string& title) {
+    if (title.empty()) {
+        throw std::invalid_argument("Заголовок задачи не может быть пустым.");
+    }
+    title_ = title;
+}
+
+void Task::set_description(const std::string& description) {
+    description_ = description;
 }

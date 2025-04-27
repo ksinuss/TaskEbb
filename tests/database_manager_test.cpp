@@ -47,9 +47,9 @@ TEST_CASE_FIXTURE(DatabaseTestFixture, "Save and retrieve task") {
     DatabaseManager db(TEST_DB_PATH);
     Task task = create_test_task();
     
-    CHECK_NOTHROW(db.saveTask<Task>(task, "tasks", bindTask));
+    CHECK_NOTHROW(db.saveTask(task, "tasks", bindTask));
     
-    auto tasks = db.getAllTasks<Task>("tasks", rowMapper);
+    auto tasks = db.getAllTasks("tasks", rowMapper);
     CHECK(tasks.size() == 1);
     CHECK(tasks[0].get_title() == "Test Title");
 }
@@ -58,11 +58,11 @@ TEST_CASE_FIXTURE(DatabaseTestFixture, "Update task") {
     DatabaseManager db(TEST_DB_PATH);
     Task task = create_test_task();
     
-    db.saveTask<Task>(task, "tasks", bindTask);
+    db.saveTask(task, "tasks", bindTask);
     task.mark_completed(false);
-    db.updateTask<Task>(task, "tasks", bindTask);
+    db.updateTask(task, "tasks", bindTask);
     
-    auto tasks = db.getAllTasks<Task>("tasks", rowMapper);
+    auto tasks = db.getAllTasks("tasks", rowMapper);
     CHECK(tasks[0].is_completed() == false);
 }
 
@@ -70,10 +70,10 @@ TEST_CASE_FIXTURE(DatabaseTestFixture, "Delete task") {
     DatabaseManager db(TEST_DB_PATH);
     Task task = create_test_task();
     
-    db.saveTask<Task>(task, "tasks", bindTask);
+    db.saveTask(task, "tasks", bindTask);
     db.deleteTask(task.get_id(), "tasks");
     
-    auto tasks = db.getAllTasks<Task>("tasks", rowMapper);
+    auto tasks = db.getAllTasks("tasks", rowMapper);
     CHECK(tasks.empty());
 }
 
@@ -81,7 +81,7 @@ TEST_CASE_FIXTURE(DatabaseTestFixture, "Invalid operations") {
     DatabaseManager db(TEST_DB_PATH);
     
     // Attempt to save to a non-existent table
-    CHECK_THROWS(db.saveTask<Task>(create_test_task(), "unknown_table", bindTask));
+    CHECK_THROWS(db.saveTask(create_test_task(), "unknown_table", bindTask));
     
     // Attempt to delete a non-existent task
     CHECK_NOTHROW(db.deleteTask("dummy_id", "tasks"));
