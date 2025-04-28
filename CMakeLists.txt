@@ -46,4 +46,5 @@ add_executable(TaskEbbGUI
 target_link_libraries(TaskEbbGUI PRIVATE
     Qt6::Widgets
     final_project_lib
+    CURL
 )
