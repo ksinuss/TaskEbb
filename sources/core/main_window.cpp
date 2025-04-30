@@ -5,6 +5,7 @@
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QMenu>
+#include <QDockWidget>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
     QWidget* centralWidget = new QWidget(this);
@@ -68,9 +69,24 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
     connect(addButton, &QPushButton::clicked, this, &MainWindow::onAddButtonClicked);
     connect(taskList, &QListWidget::itemDoubleClicked, this, &MainWindow::onTaskDoubleClicked);
     connect(filterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFilterChanged);
+
+    initTelegramUI();
+    loadTelegramSettings();
+    
+    if (!telegramTokenInput->text().isEmpty() && !telegramChatIdInput->text().isEmpty()) {
+        telegramBot = std::make_unique<TelegramBot>(
+            telegramTokenInput->text().toStdString(), 
+            db_
+        );
+        telegramBot->start();
+    }
 }
 
-MainWindow::~MainWindow() {}
+MainWindow::~MainWindow() {
+    if (telegramBot) {
+        telegramBot->stop();
+    } 
+}
 
 void MainWindow::onAddButtonClicked() {
     QString title = titleInput->text();
@@ -195,4 +211,66 @@ void MainWindow::addTaskToList(const Task& task) {
 void MainWindow::updateTaskInList(QListWidgetItem* item, const Task& task) {
     QString status = task.is_completed() ? "[✓]" : "[ ]";
     item->setText(QString("%1 %2").arg(status, QString::fromStdString(task.get_title())));
+}
+
+void MainWindow::initTelegramUI() {
+    QWidget* telegramSettings = new QWidget(this);
+    QFormLayout* telegramLayout = new QFormLayout(telegramSettings);
+    
+    telegramTokenInput = new QLineEdit(this);
+    telegramChatIdInput = new QLineEdit(this);
+    saveTelegramButton = new QPushButton("Сохранить", this);
+    testTelegramButton = new QPushButton("Проверить подключение", this);
+    
+    telegramLayout->addRow("Токен бота:", telegramTokenInput);
+    telegramLayout->addRow("Chat ID:", telegramChatIdInput);
+    telegramLayout->addRow(saveTelegramButton);
+    telegramLayout->addRow(testTelegramButton);
+    
+    QDockWidget* dock = new QDockWidget("Настройки Telegram", this);
+    dock->setWidget(telegramSettings);
+    dock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
+    dock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
+    dock->setAttribute(Qt::WA_DeleteOnClose, false); 
+    addDockWidget(Qt::RightDockWidgetArea, dock);
+    
+    connect(saveTelegramButton, &QPushButton::clicked, this, &MainWindow::onTelegramSettingsSaved);
+    connect(testTelegramButton, &QPushButton::clicked, this, &MainWindow::onTestConnectionClicked);
+}
+
+void MainWindow::loadTelegramSettings() {
+    QSettings settings;
+    telegramTokenInput->setText(settings.value("telegram/token").toString());
+    telegramChatIdInput->setText(settings.value("telegram/chat_id").toString());
+}
+
+void MainWindow::onTelegramSettingsSaved() {
+    QSettings settings;
+    settings.setValue("telegram/token", telegramTokenInput->text());
+    settings.setValue("telegram/chat_id", telegramChatIdInput->text());
+    
+    if (telegramBot) telegramBot->stop();
+    telegramBot = std::make_unique<TelegramBot>(
+        telegramTokenInput->text().toStdString(), 
+        db_
+    );
+    telegramBot->start();
+}
+
+void MainWindow::onTestConnectionClicked() {
+    if (telegramTokenInput->text().isEmpty() || telegramChatIdInput->text().isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Заполните токен и chat_id!");
+        return;
+    }
+
+    notifier = std::make_unique<TelegramNotifier>(
+        telegramTokenInput->text().toStdString(),
+        telegramChatIdInput->text().toStdString()
+    );
+    
+    if (notifier->send_message("Тест подключения: успешно!")) {
+        QMessageBox::information(this, "Успех", "Сообщение отправлено в Telegram!");
+    } else {
+        QMessageBox::critical(this, "Ошибка", "Не удалось отправить сообщение.");
+    }
 }

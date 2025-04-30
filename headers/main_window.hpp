@@ -10,6 +10,9 @@
 #include <vector>
 #include "task.hpp"
 #include "database_manager.hpp"
+#include "telegram_bot.hpp"
+#include "telegram_notifier.hpp"
+#include <QSettings>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -22,6 +25,8 @@ private slots:
     void onAddButtonClicked();
     void onTaskDoubleClicked(QListWidgetItem* item);
     void onFilterChanged(int index);
+    void onTelegramSettingsSaved(); 
+    void onTestConnectionClicked();
 
 private:
     void addTaskToList(const Task& task);
@@ -35,6 +40,16 @@ private:
     QTextEdit* descInput;
     QComboBox* filterCombo;
     QPushButton* addButton;
+
+    QLineEdit* telegramTokenInput;
+    QLineEdit* telegramChatIdInput;
+    QPushButton* saveTelegramButton;
+    QPushButton* testTelegramButton;
+    std::unique_ptr<TelegramBot> telegramBot;
+    std::unique_ptr<TelegramNotifier> notifier;
+    
+    void initTelegramUI();
+    void loadTelegramSettings();
 };
 
 #endif

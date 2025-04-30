@@ -95,12 +95,24 @@ void TelegramBot::processMessage(const std::string& text, const std::string& cha
 }
 
 void TelegramBot::send_message(const std::string& text, const std::string& chat_id) const {
+    if (text.empty()) return;
+
     CURL* curl = curl_easy_init();
     std::string url = "https://api.telegram.org/bot" + bot_token_ + "/sendMessage";
-    std::string params = "chat_id=" + chat_id + "&text=" + text;
+    
+    char* encoded_text = curl_easy_escape(curl, text.c_str(), text.length());
+    char* encoded_chat_id = curl_easy_escape(curl, chat_id.c_str(), chat_id.length());
+    
+    std::string params = "chat_id=" + std::string(encoded_chat_id) + 
+                         "&text=" + std::string(encoded_text);
+    
+    curl_free(encoded_text);
+    curl_free(encoded_chat_id);
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, params.c_str());
+    curl_easy_setopt(curl, CURLOPT_POST, 1L); 
+    
     curl_easy_perform(curl);
     curl_easy_cleanup(curl);
 }
