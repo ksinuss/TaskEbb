@@ -12,8 +12,12 @@
 #include <QHBoxLayout>
 #include <QSettings>
 #include <QTimer>
+#include <QCoreApplication>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
+    QCoreApplication::setOrganizationName("ksinuss");
+    QCoreApplication::setApplicationName("TaskEbb");
+    
     QWidget* centralTabWidget = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(centralTabWidget);
 
@@ -85,13 +89,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
 }
 
 MainWindow::~MainWindow() {
-    qDebug() << "[DEBUG] Деструктор MainWindow начал работу";
     if (telegramBot) {
-        qDebug() << "[DEBUG] Останавливаю TelegramBot...";
         telegramBot->stop();
-        qDebug() << "[DEBUG] TelegramBot остановлен";
     }
-    qDebug() << "[DEBUG] Деструктор завершен";
 }
 
 void MainWindow::onAddButtonClicked() {
@@ -258,21 +258,50 @@ void MainWindow::initTelegramUI() {
 
 void MainWindow::loadTelegramSettings() {
     QSettings settings;
-    telegramTokenInput->setText(settings.value("telegram/token").toString());
-    telegramChatIdInput->setText(settings.value("telegram/chat_id").toString());
+    QString token = settings.value("telegram/token", "").toString();
+    QString chatId = settings.value("telegram/chat_id", "").toString();
+    
+    if (telegramTokenInput && telegramChatIdInput) {
+        telegramTokenInput->setText(token);
+        telegramChatIdInput->setText(chatId);
+    }
 }
 
 void MainWindow::onTelegramSettingsSaved() {
+    if (telegramTokenInput->text().isEmpty() || telegramChatIdInput->text().isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Заполните все поля!");
+        return;
+    }
+
     QSettings settings;
     settings.setValue("telegram/token", telegramTokenInput->text());
     settings.setValue("telegram/chat_id", telegramChatIdInput->text());
     
-    if (telegramBot) telegramBot->stop();
-    telegramBot = std::make_unique<TelegramBot>(
-        telegramTokenInput->text().toStdString(), 
-        db_
-    );
-    telegramBot->start();
+    settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        qDebug() << "Ошибка сохранения настроек!";
+    }
+    qDebug() << "Токен сохранен:" << settings.value("telegram/token");
+    qDebug() << "Chat ID сохранен:" << settings.value("telegram/chat_id");
+
+    try {
+        if (telegramBot) {
+            telegramBot->stop();
+            telegramBot.reset();
+        }
+        
+        telegramBot = std::make_unique<TelegramBot>(
+            telegramTokenInput->text().toStdString(), 
+            db_
+        );
+        telegramBot->start();
+    } catch (const std::bad_alloc& e) {
+        QMessageBox::critical(this, "Ошибка", "Недостаточно памяти для создания бота.");
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Ошибка", e.what());
+    } catch (...) {
+        QMessageBox::critical(this, "Ошибка", "Неизвестная ошибка при создании бота.");
+    }
 }
 
 void MainWindow::onTestConnectionClicked() {
