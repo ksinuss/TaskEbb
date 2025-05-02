@@ -2,7 +2,8 @@
 #include <curl/curl.h>
 
 TelegramNotifier::TelegramNotifier(const std::string& bot_token, const std::string& chat_id)
-    : bot_token_(bot_token), chat_id_(chat_id) {}
+    : bot_token_(bot_token), chat_id_(chat_id) 
+{}
 
 TelegramNotifier::~TelegramNotifier() {}
 

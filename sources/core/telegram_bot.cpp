@@ -3,6 +3,8 @@
 #include <sstream>
 #include <algorithm>
 #include <iostream>
+#include <chrono>
+#include <thread>
 
 TelegramBot::TelegramBot(const std::string& bot_token, DatabaseManager& db)
     : bot_token_(bot_token), db_(db), running_(false) 
@@ -20,7 +22,14 @@ void TelegramBot::start() {
 void TelegramBot::stop() {
     running_ = false;
     if (polling_thread_.joinable()) {
-        polling_thread_.join();
+        auto start = std::chrono::steady_clock::now();
+        while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(500)) {
+            if (!polling_thread_.joinable()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (polling_thread_.joinable()) {
+            polling_thread_.detach();
+        }
     }
 }
 
@@ -32,6 +41,7 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::stri
 
 void TelegramBot::pollingLoop() {
     CURL* curl = curl_easy_init();
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
     if (!curl) {
         std::cerr << "CURL initialization failed." << std::endl;
         return;

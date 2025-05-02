@@ -75,4 +75,11 @@ target_link_libraries(TaskEbbGUI PRIVATE
     winmm
 )
 
+qt_add_resources(final_project_lib "sources"
+    PREFIX "/"
+    FILES
+        sources/icons/tasks.png
+        sources/icons/stats.png
+)
+
 add_subdirectory(tests)

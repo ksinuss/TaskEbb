@@ -41,6 +41,9 @@ private:
     QComboBox* filterCombo;
     QPushButton* addButton;
 
+    QDockWidget* telegramDock;
+    QAction* toggleTelegramAction;
+
     QLineEdit* telegramTokenInput;
     QLineEdit* telegramChatIdInput;
     QPushButton* saveTelegramButton;
@@ -50,6 +53,13 @@ private:
     
     void initTelegramUI();
     void loadTelegramSettings();
+    void initToolbar();
+    void closeEvent(QCloseEvent* event) override;
+    void readSettings();
+    void initTaskList();
+    void resizeEvent(QResizeEvent* event) override;
+
+    QTabWidget* mainTabs;
 };
 
 #endif

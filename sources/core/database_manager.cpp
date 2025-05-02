@@ -17,7 +17,7 @@ DatabaseManager::DatabaseManager(const std::string& db_path) : db_(nullptr) {
 
 DatabaseManager::~DatabaseManager() {
     if (db_) {
-        sqlite3_close(db_);
+        sqlite3_close_v2(db_);
         db_ = nullptr;
     }
 }

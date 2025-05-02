@@ -1,25 +1,28 @@
 #include "main_window.hpp"
-#include <QMessageBox> 
-#include <QDialog> 
+#include <QMessageBox>
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QMenu>
+#include <QMenuBar>
+#include <QToolBar>
 #include <QDockWidget>
+#include <QLabel>
+#include <QHBoxLayout>
+#include <QSettings>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
-    QWidget* centralWidget = new QWidget(this);
-    QVBoxLayout* layout = new QVBoxLayout(centralWidget);
+    QWidget* centralTabWidget = new QWidget(this);
+    QVBoxLayout* layout = new QVBoxLayout(centralTabWidget);
 
     titleInput = new QLineEdit(this);
     descInput = new QTextEdit(this);
     addButton = new QPushButton("Добавить задачу", this);
     taskList = new QListWidget(this);
     filterCombo = new QComboBox(this);
-
-    filterCombo->addItem("Все задачи");
-    filterCombo->addItem("Выполненные");
-    filterCombo->addItem("Невыполненные");
+    filterCombo->addItems({"Все задачи", "Выполненные", "Невыполненные"});
 
     QFormLayout* form = new QFormLayout();
     form->addRow("Заголовок:", titleInput);
@@ -43,49 +46,52 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
     layout->addWidget(filterCombo);
     layout->addWidget(taskList);
 
-    setCentralWidget(centralWidget);
+    mainTabs = new QTabWidget(this);
+    mainTabs->addTab(centralTabWidget, "Активные задачи");
+    mainTabs->addTab(new QWidget(), "Статистика");
+    setCentralWidget(mainTabs);
+
+    initToolbar();
+    initTelegramUI();
+    loadTelegramSettings();
+
+    resize(800, 600);
 
     try {
+        db_.initialize();
         tasks = db_.getAllTasks("tasks", [](sqlite3_stmt* stmt) {
-            std::string id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            std::string title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-            std::string description = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-            bool completed = sqlite3_column_int(stmt, 3);
-            int interval = sqlite3_column_int(stmt, 4);
+            Task task(
+                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title
+                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description
+            );
 
-            Task task(title, description);
-            task.set_id(id);
-            task.mark_completed(completed);
-            task.set_interval(std::chrono::hours(interval));
+            task.mark_completed(sqlite3_column_int(stmt, 3) == 1); // completed
+            task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4))); // interval
+
             return task;
         });
         for (const auto& task : tasks) {
             addTaskToList(task);
         }
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Ошибка", e.what());
     } catch (...) {
-        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить задачи.");
+        QMessageBox::critical(this, "Ошибка", "Неизвестная ошибка");
     }
 
     connect(addButton, &QPushButton::clicked, this, &MainWindow::onAddButtonClicked);
     connect(taskList, &QListWidget::itemDoubleClicked, this, &MainWindow::onTaskDoubleClicked);
     connect(filterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFilterChanged);
-
-    initTelegramUI();
-    loadTelegramSettings();
-    
-    if (!telegramTokenInput->text().isEmpty() && !telegramChatIdInput->text().isEmpty()) {
-        telegramBot = std::make_unique<TelegramBot>(
-            telegramTokenInput->text().toStdString(), 
-            db_
-        );
-        telegramBot->start();
-    }
 }
 
 MainWindow::~MainWindow() {
+    qDebug() << "[DEBUG] Деструктор MainWindow начал работу";
     if (telegramBot) {
+        qDebug() << "[DEBUG] Останавливаю TelegramBot...";
         telegramBot->stop();
-    } 
+        qDebug() << "[DEBUG] TelegramBot остановлен";
+    }
+    qDebug() << "[DEBUG] Деструктор завершен";
 }
 
 void MainWindow::onAddButtonClicked() {
@@ -215,10 +221,13 @@ void MainWindow::updateTaskInList(QListWidgetItem* item, const Task& task) {
 
 void MainWindow::initTelegramUI() {
     QWidget* telegramSettings = new QWidget(this);
-    QFormLayout* telegramLayout = new QFormLayout(telegramSettings);
+    QVBoxLayout* mainLayout = new QVBoxLayout(telegramSettings);
+    QFormLayout* telegramLayout = new QFormLayout();
     
     telegramTokenInput = new QLineEdit(this);
     telegramChatIdInput = new QLineEdit(this);
+    telegramTokenInput->setMaximumWidth(250);
+    telegramChatIdInput->setMaximumWidth(250);
     saveTelegramButton = new QPushButton("Сохранить", this);
     testTelegramButton = new QPushButton("Проверить подключение", this);
     
@@ -226,13 +235,22 @@ void MainWindow::initTelegramUI() {
     telegramLayout->addRow("Chat ID:", telegramChatIdInput);
     telegramLayout->addRow(saveTelegramButton);
     telegramLayout->addRow(testTelegramButton);
+    telegramLayout->setContentsMargins(15, 15, 15, 15);
+    telegramLayout->setSpacing(10);
     
-    QDockWidget* dock = new QDockWidget("Настройки Telegram", this);
-    dock->setWidget(telegramSettings);
-    dock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
-    dock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    dock->setAttribute(Qt::WA_DeleteOnClose, false); 
-    addDockWidget(Qt::RightDockWidgetArea, dock);
+    mainLayout->addLayout(telegramLayout);
+    
+    telegramDock = new QDockWidget("Настройки Telegram", this);
+    telegramDock->setWidget(telegramSettings);
+    telegramDock->setFeatures(
+        QDockWidget::DockWidgetClosable | 
+        QDockWidget::DockWidgetMovable | 
+        QDockWidget::DockWidgetFloatable);
+    telegramDock->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    telegramDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
+    addDockWidget(Qt::RightDockWidgetArea, telegramDock);
+
+    connect(telegramDock, &QDockWidget::visibilityChanged, toggleTelegramAction, &QAction::setChecked);
     
     connect(saveTelegramButton, &QPushButton::clicked, this, &MainWindow::onTelegramSettingsSaved);
     connect(testTelegramButton, &QPushButton::clicked, this, &MainWindow::onTestConnectionClicked);
@@ -272,5 +290,86 @@ void MainWindow::onTestConnectionClicked() {
         QMessageBox::information(this, "Успех", "Сообщение отправлено в Telegram!");
     } else {
         QMessageBox::critical(this, "Ошибка", "Не удалось отправить сообщение.");
+    }
+}
+
+void MainWindow::initToolbar() {
+    QToolBar* toolbar = new QToolBar("Панель управления", this);
+    toolbar->setMovable(false);
+    addToolBar(Qt::TopToolBarArea, toolbar);
+
+    QAction* tasksAction = new QAction("Задачи", this);
+    toolbar->addAction(tasksAction);
+
+    QWidget* spacer = new QWidget();
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    toolbar->addWidget(spacer);
+
+    toggleTelegramAction = new QAction("Привязать Telegram", this);
+    toggleTelegramAction->setCheckable(true);
+    toolbar->addAction(toggleTelegramAction);
+
+    connect(toggleTelegramAction, &QAction::toggled, this, [this](bool checked) {
+        telegramDock->setVisible(checked);
+        if(checked && telegramDock->isHidden()) {
+            telegramDock->show();
+        }
+    });
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    QSettings settings;
+    settings.setValue("telegramPanelVisible", telegramDock->isVisible());
+    QTimer::singleShot(0, [this]() {
+        db_.logAction("EXIT", "", "Приложение закрыто");
+    });
+    
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::readSettings() {
+    QSettings settings;
+    bool telegramVisible = settings.value("telegramPanelVisible", true).toBool();
+    findChild<QDockWidget*>("Настройки Telegram")->setVisible(telegramVisible);
+}
+
+void MainWindow::initTaskList() {
+    QWidget* taskTab = mainTabs->widget(0);
+    QVBoxLayout* layout = new QVBoxLayout(taskTab);
+
+    QListWidget* taskList = new QListWidget(taskTab);
+    layout->addWidget(taskList);
+
+    for (const auto& task : tasks) {
+        QListWidgetItem* item = new QListWidgetItem(taskList);
+        QWidget* taskWidget = new QWidget();
+        
+        QHBoxLayout* taskLayout = new QHBoxLayout(taskWidget);
+        
+        QLabel* title = new QLabel(QString::fromStdString(task.get_title()));
+        
+        QString description = QString::fromStdString(task.get_description());
+        if (description.length() > 50) {
+            description = description.left(47) + "...";
+        }
+        QLabel* desc = new QLabel(description);
+        desc->setStyleSheet("color: gray; font-size: 10pt;");
+        
+        QLabel* deadline = new QLabel("До: 2024-12-31");
+        deadline->setAlignment(Qt::AlignRight);
+        
+        taskLayout->addWidget(title);
+        taskLayout->addWidget(desc);
+        taskLayout->addWidget(deadline);
+        
+        item->setSizeHint(taskWidget->sizeHint());
+        taskList->setItemWidget(item, taskWidget);
+    }
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    if (telegramDock && telegramDock->isVisible()) {
+        telegramDock->setMaximumWidth(width() * 0.3);
     }
 }
