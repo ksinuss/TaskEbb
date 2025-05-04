@@ -6,6 +6,7 @@
 #include <string>
 #include <stdexcept>
 #include <functional>
+#include <utility>
 #include "task.hpp"
 #include "task_template.hpp"
 
@@ -83,6 +84,7 @@ public:
     void saveTemplate(const TaskTemplate& tmpl);
     void deleteTemplate(const std::string& id);
     std::vector<TaskTemplate> getAllTemplates();
+    std::pair<int, int> getTaskStats();
 
 private:
     sqlite3* db_;  ///< SQLite database connection handle

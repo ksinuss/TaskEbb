@@ -1,6 +1,10 @@
 #ifndef MAIN_WINDOW_HPP
 #define MAIN_WINDOW_HPP
 
+#include "task.hpp"
+#include "database_manager.hpp"
+#include "telegram_bot.hpp"
+#include "telegram_notifier.hpp"
 #include <QMainWindow>
 #include <QListWidget>
 #include <QLineEdit> 
@@ -8,11 +12,9 @@
 #include <QComboBox>    
 #include <QPushButton> 
 #include <vector>
-#include "task.hpp"
-#include "database_manager.hpp"
-#include "telegram_bot.hpp"
-#include "telegram_notifier.hpp"
 #include <QSettings>
+#include <QtCharts/QChartView>
+#include <QtCharts/QPieSeries>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -55,6 +57,7 @@ private:
     QTabWidget* mainTabs;
 
     void addTaskToList(const Task& task);
+    void loadTasksFromDB();
     void updateTaskInList(QListWidgetItem* item, const Task& task);
     void loadTelegramSettings();
     void closeEvent(QCloseEvent* event) override;
@@ -65,7 +68,7 @@ private:
     void initTaskList();
     void initTemplateUI(QWidget* tab);
     void initActiveTasksUI(QWidget* tab);
-    void loadTasksFromDB();
+    void initStatsUI(QWidget* tab);
 };
 
 #endif

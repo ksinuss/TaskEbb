@@ -10,11 +10,12 @@
 #include <QDockWidget>
 #include <QLabel>
 #include <QHBoxLayout>
-#include <QSettings>
 #include <QTimer>
 #include <QCoreApplication>
 #include <QSpinBox>
 #include <QStackedLayout>
+#include <QtCharts>
+#include <QPainter>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
     QCoreApplication::setOrganizationName("ksinuss");
@@ -28,6 +29,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
     mainTabs->addTab(activeTasksTab, "Активные задачи");
     
     QWidget* statsTab = new QWidget();
+    initStatsUI(statsTab);
     mainTabs->addTab(statsTab, "Статистика");
 
     QWidget* templatesTab = new QWidget();
@@ -343,6 +345,25 @@ void MainWindow::initTaskList() {
     }
 }
 
+void MainWindow::loadTasksFromDB() {
+    try {
+        tasks = db_.getAllTasks("tasks", [](sqlite3_stmt* stmt) {
+            Task task(
+                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), 
+                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))
+            );
+            task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
+            task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4)));
+            return task;
+        });
+        for (const auto& task : tasks) {
+            addTaskToList(task);
+        }
+    } catch (...) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить задачи из БД");
+    }
+}
+
 void MainWindow::addTaskToList(const Task& task) {
     QListWidgetItem* item = new QListWidgetItem(QString::fromStdString(task.get_title()), taskList);
     
@@ -489,21 +510,36 @@ void MainWindow::initActiveTasksUI(QWidget* tab) {
     connect(filterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onFilterChanged);
 }
 
-void MainWindow::loadTasksFromDB() {
-    try {
-        tasks = db_.getAllTasks("tasks", [](sqlite3_stmt* stmt) {
-            Task task(
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), 
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))
-            );
-            task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
-            task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4)));
-            return task;
-        });
-        for (const auto& task : tasks) {
-            addTaskToList(task);
-        }
-    } catch (...) {
-        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить задачи из БД");
-    }
+void MainWindow::initStatsUI(QWidget* tab) {
+    QVBoxLayout* layout = new QVBoxLayout(tab);
+    
+    auto [completed, pending] = db_.getTaskStats();
+    
+    auto* series = new QPieSeries();
+    series->append("Выполнено (" + QString::number(completed) + ")", completed);
+    series->append("Не выполнено (" + QString::number(pending) + ")", pending);
+    
+    series->slices().at(0)->setColor(QColor("#4CAF50"));
+    series->slices().at(1)->setColor(QColor("#F44336"));
+    
+    auto* chart = new QChart();
+    chart->addSeries(series);
+    chart->setTitle("Статистика выполнения задач");
+    chart->legend()->setAlignment(Qt::AlignBottom);
+    
+    auto* chartView = new QChartView(chart);
+    chartView->setRenderHint(QPainter::Antialiasing);
+    
+    layout->addWidget(chartView);
+    
+    QPushButton* refreshButton = new QPushButton("Обновить", this);
+    connect(refreshButton, &QPushButton::clicked, this, [this, chart]() {
+        auto [completed, pending] = db_.getTaskStats();
+        auto* series = static_cast<QPieSeries*>(chart->series().at(0));
+        series->clear();
+        series->append("Выполнено", completed)->setColor(QColor("#4CAF50"));
+        series->append("Не выполнено", pending)->setColor(QColor("#F44336"));
+    });
+    
+    layout->addWidget(refreshButton);
 }

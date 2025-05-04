@@ -211,3 +211,25 @@ std::vector<TaskTemplate> DatabaseManager::getAllTemplates() {
     sqlite3_finalize(stmt);
     return templates;
 }
+
+std::pair<int, int> DatabaseManager::getTaskStats() {
+    int completed = 0, pending = 0;
+    const std::string sql_completed = "SELECT COUNT(*) FROM tasks WHERE is_completed = 1";
+    const std::string sql_pending = "SELECT COUNT(*) FROM tasks WHERE is_completed = 0";
+
+    sqlite3_stmt* stmt;
+    
+    sqlite3_prepare_v2(db_, sql_completed.c_str(), -1, &stmt, nullptr);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        completed = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+
+    sqlite3_prepare_v2(db_, sql_pending.c_str(), -1, &stmt, nullptr);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        pending = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+
+    return {completed, pending};
+}
