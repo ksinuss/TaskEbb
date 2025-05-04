@@ -29,11 +29,9 @@ private slots:
     void onTestConnectionClicked();
 
 private:
-    void addTaskToList(const Task& task);
-    void updateTaskInList(QListWidgetItem* item, const Task& task);
-
     DatabaseManager db_;
     std::vector<Task> tasks;
+    std::vector<TaskTemplate> templates;
 
     QListWidget* taskList;
     QLineEdit* titleInput;
@@ -43,7 +41,6 @@ private:
 
     QDockWidget* telegramDock;
     QAction* toggleTelegramAction;
-
     QLineEdit* telegramTokenInput;
     QLineEdit* telegramChatIdInput;
     QPushButton* saveTelegramButton;
@@ -51,15 +48,24 @@ private:
     std::unique_ptr<TelegramBot> telegramBot;
     std::unique_ptr<TelegramNotifier> notifier;
     
-    void initTelegramUI();
+    QAction* tasksAction;
+    QAction* templatesAction;
+    QTabWidget* tasksTabs;
+    QWidget* templatesTab;
+    QTabWidget* mainTabs;
+
+    void addTaskToList(const Task& task);
+    void updateTaskInList(QListWidgetItem* item, const Task& task);
     void loadTelegramSettings();
-    void initToolbar();
     void closeEvent(QCloseEvent* event) override;
     void readSettings();
-    void initTaskList();
     void resizeEvent(QResizeEvent* event) override;
-
-    QTabWidget* mainTabs;
+    void initTelegramUI();
+    void initToolbar();
+    void initTaskList();
+    void initTemplateUI(QWidget* tab);
+    void initActiveTasksUI(QWidget* tab);
+    void loadTasksFromDB();
 };
 
 #endif

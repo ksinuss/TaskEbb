@@ -33,6 +33,14 @@ void DatabaseManager::initialize() {
     );
 
     executeQuery(
+        "CREATE TABLE IF NOT EXISTS templates ("
+        "id TEXT PRIMARY KEY, "
+        "title TEXT NOT NULL, "
+        "description TEXT, "
+        "interval_hours INTEGER DEFAULT 0);"
+    );
+
+    executeQuery(
         "CREATE TABLE IF NOT EXISTS logs ("
         "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
         "action_type TEXT, "
@@ -166,4 +174,40 @@ Task DatabaseManager::mapTaskFromRow(sqlite3_stmt* stmt) {
     task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
     task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4)));
     return task;
+}
+
+void DatabaseManager::saveTemplate(const TaskTemplate& tmpl) {
+    const std::string sql = 
+        "INSERT INTO templates (title, description, interval_hours) "
+        "VALUES (?, ?, ?);";
+    
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    throwOnError(rc, "prepare INSERT template");
+
+    sqlite3_bind_text(stmt, 1, tmpl.get_title().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, tmpl.get_description().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, tmpl.get_interval_hours());
+
+    rc = sqlite3_step(stmt);
+    if (rc != SQLITE_DONE) throwOnError(rc, "execute INSERT template");
+    sqlite3_finalize(stmt);
+}
+
+std::vector<TaskTemplate> DatabaseManager::getAllTemplates() {
+    std::vector<TaskTemplate> templates;
+    const std::string sql = "SELECT title, description, interval_hours FROM templates;";
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    throwOnError(rc, "prepare SELECT templates");
+    
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        std::string title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        std::string desc = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        int interval = sqlite3_column_int(stmt, 2);
+        templates.emplace_back(title, desc, interval);
+    }
+    
+    sqlite3_finalize(stmt);
+    return templates;
 }

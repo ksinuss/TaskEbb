@@ -5,6 +5,7 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <cctype>
 
 TelegramBot::TelegramBot(const std::string& bot_token, DatabaseManager& db)
     : bot_token_(bot_token), db_(db), running_(false) 
@@ -80,6 +81,24 @@ void TelegramBot::pollingLoop() {
     curl_easy_cleanup(curl);
 }
 
+static std::vector<std::string> split(const std::string& s, char delimiter) {
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream tokenStream(s);
+    while (std::getline(tokenStream, token, delimiter)) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
+static std::string trim(const std::string& s) {
+    auto start = s.begin();
+    while (start != s.end() && std::isspace(*start)) start++;
+    auto end = s.end();
+    while (end != start && std::isspace(*(end - 1))) end--;
+    return std::string(start, end);
+}
+
 void TelegramBot::processMessage(const std::string& text, const std::string& chat_id) {
     if (text.find("Добавить:") == 0) {
         std::string content = text.substr(9);
@@ -100,6 +119,33 @@ void TelegramBot::processMessage(const std::string& text, const std::string& cha
             send_message("✅ Задача добавлена: " + title, chat_id);
         } catch (const std::exception& e) {
             send_message("❌ Ошибка: " + std::string(e.what()), chat_id);
+        }
+    }
+
+    if (text.find("/add_template") == 0) {
+        std::vector<std::string> parts = split(text, ',');
+        if (parts.size() < 3) {
+            send_message("❌ Формат: /add_template Название, Описание, Интервал", chat_id);
+            return;
+        }
+        
+        try {
+            std::string commandPrefix = "/add_template ";
+            std::string titlePart = parts[0];
+            size_t prefixPos = titlePart.find(commandPrefix);
+            if (prefixPos != std::string::npos) {
+                titlePart = titlePart.substr(prefixPos + commandPrefix.length());
+            }
+    
+            std::string title = trim(titlePart);
+            std::string description = trim(parts[1]);
+            int interval = std::stoi(trim(parts[2]));
+    
+            TaskTemplate tmpl(title, description, interval);
+            db_.saveTemplate(tmpl);
+            send_message("✅ Шаблон создан: " + title, chat_id);
+        } catch (...) {
+            send_message("❌ Ошибка при создании шаблона", chat_id);
         }
     }
 }

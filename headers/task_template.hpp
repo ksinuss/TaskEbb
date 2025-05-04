@@ -14,11 +14,7 @@
 class TaskTemplate {
 public:
     ///< Recurrence types supported by the template
-    enum class RecurrenceType {
-        DAILY,
-        WEEKLY,
-        CUSTOM
-    };
+    enum class RecurrenceType { DAILY, WEEKLY, CUSTOM };
 
     /**
      * @brief Construct a new Task Template object
@@ -27,7 +23,7 @@ public:
      * @param interval Custom interval in hours (for CUSTOM type, default = 24)
      * @throws std::invalid_argument if interval <= 0 for CUSTOM type
      */
-    TaskTemplate(const Task& base_task, RecurrenceType type = RecurrenceType::DAILY, int interval = 24);
+     TaskTemplate(const std::string& title, const std::string& description, int interval);
 
     /**
      * @brief Creating tasks before the specified time stamp
@@ -56,7 +52,14 @@ public:
      */
     int get_custom_interval_hours() const noexcept;
 
+    std::string get_title() const;
+    std::string get_description() const;
+    int get_interval_hours() const;
+
 private:
+    std::string title_;
+    std::string description_;
+    int interval_hours_;
     Task base_task_;
     RecurrenceType recurrence_type_;
     int custom_interval_hours_;

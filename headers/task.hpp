@@ -16,6 +16,7 @@ public:
      * @param description Task description (empty by default)
      */
     Task(const std::string& title, const std::string& description = "");
+    
     ~Task() = default;
 
     /**

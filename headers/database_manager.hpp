@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <functional>
 #include "task.hpp"
-// class Task;
+#include "task_template.hpp"
 
 /**
  * @class DatabaseManager
@@ -79,6 +79,10 @@ public:
         const std::string& task_id,
         const std::string& message
     );
+
+    void saveTemplate(const TaskTemplate& tmpl);
+    void deleteTemplate(const std::string& id);
+    std::vector<TaskTemplate> getAllTemplates();
 
 private:
     sqlite3* db_;  ///< SQLite database connection handle

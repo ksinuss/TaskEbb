@@ -1,13 +1,10 @@
 #include "task_template.hpp"
+#include "task.hpp"
 #include <cmath>
 
-TaskTemplate::TaskTemplate(const Task& base_task, RecurrenceType type, int interval)
-    : base_task_(base_task), recurrence_type_(type), custom_interval_hours_(interval), last_generated_(0)
-{
-    if (recurrence_type_ == RecurrenceType::CUSTOM && interval <= 0) {
-        throw std::invalid_argument("Custom interval must be positive");
-    }
-}
+TaskTemplate::TaskTemplate(const std::string& title, const std::string& description, int interval)
+    : base_task_(title, description), recurrence_type_(RecurrenceType::CUSTOM), custom_interval_hours_(interval), last_generated_(0) 
+{}
 
 std::vector<Task> TaskTemplate::generate_tasks(time_t up_to_timestamp) const {
     std::vector<Task> tasks;
@@ -58,4 +55,16 @@ TaskTemplate::RecurrenceType TaskTemplate::get_recurrence_type() const noexcept 
 
 int TaskTemplate::get_custom_interval_hours() const noexcept {
     return (recurrence_type_ == RecurrenceType::CUSTOM) ? custom_interval_hours_ : 0;
+}
+
+std::string TaskTemplate::get_title() const { 
+    return base_task_.get_title(); 
+}
+
+std::string TaskTemplate::get_description() const { 
+    return base_task_.get_description(); 
+}
+    
+int TaskTemplate::get_interval_hours() const { 
+    return custom_interval_hours_; 
 }
