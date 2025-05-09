@@ -15,6 +15,7 @@
 #include <QSettings>
 #include <QtCharts/QChartView>
 #include <QtCharts/QPieSeries>
+#include <QStackedWidget>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -35,11 +36,17 @@ private:
     std::vector<Task> tasks;
     std::vector<TaskTemplate> templates;
 
-    QListWidget* taskList;
+    QListWidget* taskList = nullptr;
     QLineEdit* titleInput;
     QTextEdit* descInput;
     QComboBox* filterCombo;
     QPushButton* addButton;
+
+    QAction* tasksAction;
+    QAction* templatesAction;
+    QTabWidget* tasksTabs;
+    QTabWidget* templatesTabs;
+    QStackedWidget* mainStack;
 
     QDockWidget* telegramDock;
     QAction* toggleTelegramAction;
@@ -50,12 +57,6 @@ private:
     std::unique_ptr<TelegramBot> telegramBot;
     std::unique_ptr<TelegramNotifier> notifier;
     
-    QAction* tasksAction;
-    QAction* templatesAction;
-    QTabWidget* tasksTabs;
-    QWidget* templatesTab;
-    QTabWidget* mainTabs;
-
     void addTaskToList(const Task& task);
     void loadTasksFromDB();
     void updateTaskInList(QListWidgetItem* item, const Task& task);
@@ -65,7 +66,6 @@ private:
     void resizeEvent(QResizeEvent* event) override;
     void initTelegramUI();
     void initToolbar();
-    void initTaskList();
     void initTemplateUI(QWidget* tab);
     void initActiveTasksUI(QWidget* tab);
     void initStatsUI(QWidget* tab);

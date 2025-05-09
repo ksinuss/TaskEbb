@@ -21,20 +21,26 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
     QCoreApplication::setOrganizationName("ksinuss");
     QCoreApplication::setApplicationName("TaskEbb");
     
-    mainTabs = new QTabWidget(this);
-    setCentralWidget(mainTabs);
+    mainStack = new QStackedWidget(this);
+    setCentralWidget(mainStack);
 
+    tasksTabs = new QTabWidget();
     QWidget* activeTasksTab = new QWidget();
     initActiveTasksUI(activeTasksTab);
-    mainTabs->addTab(activeTasksTab, "Активные задачи");
+    tasksTabs->addTab(activeTasksTab, "Активные задачи");
     
     QWidget* statsTab = new QWidget();
     initStatsUI(statsTab);
-    mainTabs->addTab(statsTab, "Статистика");
+    tasksTabs->addTab(statsTab, "Статистика");
+    mainStack->addWidget(tasksTabs);
 
+    templatesTabs = new QTabWidget();
     QWidget* templatesTab = new QWidget();
     initTemplateUI(templatesTab);
-    mainTabs->addTab(templatesTab, "Управление шаблонами");
+    templatesTabs->addTab(templatesTab, "Управление шаблонами");
+    mainStack->addWidget(templatesTabs);
+
+    mainStack->setCurrentIndex(0);
 
     initToolbar();
     initTelegramUI();
@@ -43,10 +49,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
     resize(800, 600);
 
     try {
-        db_.initialize();
+        if (!std::filesystem::exists("tasks.db")) {
+            db_.initialize();
+        }
         loadTasksFromDB();
-    } catch (...) {
-        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить данные");
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Ошибка", QString::fromStdString(e.what()));
     }
 }
 
@@ -281,16 +289,12 @@ void MainWindow::initToolbar() {
     QAction* templatesAction = new QAction("Шаблоны", this);
     
     connect(tasksAction, &QAction::triggered, this, [this]() {
-        if (mainTabs) {
-            mainTabs->setCurrentIndex(0);
-        }
+        mainStack->setCurrentIndex(0);
     });
-    
     connect(templatesAction, &QAction::triggered, this, [this]() {
-        if (mainTabs) {
-            mainTabs->setCurrentIndex(2);
-        }
+        mainStack->setCurrentIndex(1);
     });
+
     toolbar->addAction(tasksAction);
     toolbar->addAction(templatesAction);
 
@@ -309,40 +313,6 @@ void MainWindow::initToolbar() {
     });
 
     addToolBar(toolbar);
-}
-
-void MainWindow::initTaskList() {
-    QWidget* taskTab = mainTabs->widget(0);
-    QVBoxLayout* layout = new QVBoxLayout(taskTab);
-
-    QListWidget* taskList = new QListWidget(taskTab);
-    layout->addWidget(taskList);
-
-    for (const auto& task : tasks) {
-        QListWidgetItem* item = new QListWidgetItem(taskList);
-        QWidget* taskWidget = new QWidget();
-        
-        QHBoxLayout* taskLayout = new QHBoxLayout(taskWidget);
-        
-        QLabel* title = new QLabel(QString::fromStdString(task.get_title()));
-        
-        QString description = QString::fromStdString(task.get_description());
-        if (description.length() > 50) {
-            description = description.left(47) + "...";
-        }
-        QLabel* desc = new QLabel(description);
-        desc->setStyleSheet("color: gray; font-size: 10pt;");
-        
-        QLabel* deadline = new QLabel("До: 2024-12-31");
-        deadline->setAlignment(Qt::AlignRight);
-        
-        taskLayout->addWidget(title);
-        taskLayout->addWidget(desc);
-        taskLayout->addWidget(deadline);
-        
-        item->setSizeHint(taskWidget->sizeHint());
-        taskList->setItemWidget(item, taskWidget);
-    }
 }
 
 void MainWindow::loadTasksFromDB() {
@@ -401,6 +371,7 @@ void MainWindow::addTaskToList(const Task& task) {
 
 void MainWindow::initTemplateUI(QWidget* tab) {
     QVBoxLayout* mainLayout = new QVBoxLayout(tab);
+    mainLayout->setContentsMargins(5, 5, 5, 5);
 
     QComboBox* templateCombo = new QComboBox(tab);
     templateCombo->addItem("Выберите шаблон");
@@ -485,7 +456,7 @@ void MainWindow::initActiveTasksUI(QWidget* tab) {
     form->addRow("Заголовок:", titleInput);
     form->addRow("Описание:", descInput);
 
-    taskList = new QListWidget(this);
+    taskList = new QListWidget(tab);
     taskList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(taskList, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         QListWidgetItem* item = taskList->itemAt(pos);
