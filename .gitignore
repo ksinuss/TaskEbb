@@ -4,6 +4,9 @@ build/
 docs/
 .gitattributes
 
+# Configs
+config/config.ini
+
 # Prerequisites
 *.d
 

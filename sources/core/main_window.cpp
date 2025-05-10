@@ -1,4 +1,5 @@
 #include "main_window.hpp"
+#include "telegram_bot.hpp"
 #include <QMessageBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -16,8 +17,9 @@
 #include <QStackedLayout>
 #include <QtCharts>
 #include <QPainter>
+#include <QRegularExpressionValidator>
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
+MainWindow::MainWindow(ConfigManager& config, DatabaseManager& db, QWidget* parent) : QMainWindow(parent), config_(config), db_(db) {
     QCoreApplication::setOrganizationName("ksinuss");
     QCoreApplication::setApplicationName("TaskEbb");
     
@@ -46,13 +48,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), db_("tasks.db") {
     initTelegramUI();
     loadTelegramSettings();
 
+    telegramBot = std::make_unique<TelegramBot>(config_, db_);
+    connect(telegramBot.get(), &TelegramBot::chatIdRegistered, this, &MainWindow::handleChatIdRegistered);
+
     resize(800, 600);
 
     try {
-        if (!std::filesystem::exists("tasks.db")) {
-            db_.initialize();
-        }
-        loadTasksFromDB();
+        ConfigManager config;
+        telegramBot = std::make_unique<TelegramBot>(config, db_);
+        telegramBot->start();
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "Ошибка", QString::fromStdString(e.what()));
     }
@@ -155,57 +159,24 @@ void MainWindow::updateTaskInList(QListWidgetItem* item, const Task& task) {
 }
 
 void MainWindow::onTelegramSettingsSaved() {
-    if (telegramTokenInput->text().isEmpty() || telegramChatIdInput->text().isEmpty()) {
-        QMessageBox::warning(this, "Ошибка", "Заполните все поля!");
+    if (!telegramChatIdInput) {
+        QMessageBox::warning(this, "Ошибка", "Поле Chat ID не найдено!");
         return;
     }
-
-    QSettings settings;
-    settings.setValue("telegram/token", telegramTokenInput->text());
-    settings.setValue("telegram/chat_id", telegramChatIdInput->text());
-    
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
-        qDebug() << "Ошибка сохранения настроек!";
+    QString chatId = telegramChatIdInput->text().trimmed();
+    if (chatId.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Введите Chat ID!");
+        return;
     }
-    qDebug() << "Токен сохранен:" << settings.value("telegram/token");
-    qDebug() << "Chat ID сохранен:" << settings.value("telegram/chat_id");
-
     try {
-        if (telegramBot) {
-            telegramBot->stop();
-            telegramBot.reset();
-        }
-        
-        telegramBot = std::make_unique<TelegramBot>(
-            telegramTokenInput->text().toStdString(), 
-            db_
-        );
-        telegramBot->start();
-    } catch (const std::bad_alloc& e) {
-        QMessageBox::critical(this, "Ошибка", "Недостаточно памяти для создания бота.");
+        db_.saveChatId(chatId.toStdString());
+        QSettings settings;
+        settings.setValue("telegram/chat_id", chatId);
+        settings.sync();
+        statusLabel->setText("Статус: Привязан (вручную)");
+        QMessageBox::information(this, "Успех", "Chat ID сохранен!");
     } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Ошибка", e.what());
-    } catch (...) {
-        QMessageBox::critical(this, "Ошибка", "Неизвестная ошибка при создании бота.");
-    }
-}
-
-void MainWindow::onTestConnectionClicked() {
-    if (telegramTokenInput->text().isEmpty() || telegramChatIdInput->text().isEmpty()) {
-        QMessageBox::warning(this, "Ошибка", "Заполните токен и chat_id!");
-        return;
-    }
-
-    notifier = std::make_unique<TelegramNotifier>(
-        telegramTokenInput->text().toStdString(),
-        telegramChatIdInput->text().toStdString()
-    );
-    
-    if (notifier->send_message("Тест подключения: успешно!")) {
-        QMessageBox::information(this, "Успех", "Сообщение отправлено в Telegram!");
-    } else {
-        QMessageBox::critical(this, "Ошибка", "Не удалось отправить сообщение.");
+        QMessageBox::critical(this, "Ошибка", "Не удалось сохранить Chat ID: " + QString(e.what()));
     }
 }
 
@@ -235,23 +206,33 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
 void MainWindow::initTelegramUI() {
     QWidget* telegramSettings = new QWidget(this);
     QVBoxLayout* mainLayout = new QVBoxLayout(telegramSettings);
-    QFormLayout* telegramLayout = new QFormLayout();
+    QFormLayout* formLayout = new QFormLayout();
     
-    telegramTokenInput = new QLineEdit(this);
+    QLabel* instructionLabel = new QLabel(
+        "<b>Способы привязки Telegram:</b>"
+        "<ol>"
+        "<li>Автоматически: "
+            "<a href='https://t.me/task_ebb_bot'>Перейти к боту</a> → отправить /start"
+        "</li>"
+        "<li>Вручную: Введите ваш Chat ID ниже</li>"
+        "</ol>",
+        this
+    );
+    instructionLabel->setOpenExternalLinks(true);
+    instructionLabel->setTextFormat(Qt::RichText);
+    
     telegramChatIdInput = new QLineEdit(this);
-    telegramTokenInput->setMaximumWidth(250);
-    telegramChatIdInput->setMaximumWidth(250);
-    saveTelegramButton = new QPushButton("Сохранить", this);
-    testTelegramButton = new QPushButton("Проверить подключение", this);
+    telegramChatIdInput->setPlaceholderText("Пример: 123456789");
+    telegramChatIdInput->setValidator(new QRegularExpressionValidator(QRegularExpression("\\d+"), this)); ///< only digits
+    QPushButton* saveChatIdButton = new QPushButton("Привязать вручную", this);
+    statusLabel = new QLabel("Статус: Не привязан", this);
+
+    formLayout->addRow(instructionLabel);
+    formLayout->addRow("Ваш Chat ID:", telegramChatIdInput);
+    formLayout->addRow(saveChatIdButton);
+    formLayout->addRow(statusLabel);
     
-    telegramLayout->addRow("Токен бота:", telegramTokenInput);
-    telegramLayout->addRow("Chat ID:", telegramChatIdInput);
-    telegramLayout->addRow(saveTelegramButton);
-    telegramLayout->addRow(testTelegramButton);
-    telegramLayout->setContentsMargins(15, 15, 15, 15);
-    telegramLayout->setSpacing(10);
-    
-    mainLayout->addLayout(telegramLayout);
+    mainLayout->addLayout(formLayout);
     
     telegramDock = new QDockWidget("Настройки Telegram", this);
     telegramDock->setWidget(telegramSettings);
@@ -263,20 +244,30 @@ void MainWindow::initTelegramUI() {
     telegramDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
     addDockWidget(Qt::RightDockWidgetArea, telegramDock);
     telegramDock->setVisible(false);
-    connect(telegramDock, &QDockWidget::visibilityChanged, toggleTelegramAction, &QAction::setChecked);
     
-    connect(saveTelegramButton, &QPushButton::clicked, this, &MainWindow::onTelegramSettingsSaved);
-    connect(testTelegramButton, &QPushButton::clicked, this, &MainWindow::onTestConnectionClicked);
+    connect(saveChatIdButton, &QPushButton::clicked, this, [this]() {
+        QString chatId = this->telegramChatIdInput->text().trimmed();
+        if (chatId.isEmpty()) {
+            QMessageBox::warning(this, "Ошибка", "Введите Chat ID!");
+            return;
+        }
+        try {
+            db_.saveChatId(chatId.toStdString());
+            this->statusLabel->setText("Статус: Привязан (вручную)");
+            QMessageBox::information(this, "Успех", "Chat ID сохранен!");
+        } catch (const std::exception& e) {
+            QMessageBox::critical(this, "Ошибка", "Не удалось сохранить Chat ID");
+        }
+    });
+    
+    connect(telegramDock, &QDockWidget::visibilityChanged, toggleTelegramAction, &QAction::setChecked);
 }
 
 void MainWindow::loadTelegramSettings() {
     QSettings settings;
-    QString token = settings.value("telegram/token", "").toString();
-    QString chatId = settings.value("telegram/chat_id", "").toString();
-    
-    if (telegramTokenInput && telegramChatIdInput) {
-        telegramTokenInput->setText(token);
-        telegramChatIdInput->setText(chatId);
+    QString savedChatId = settings.value("telegram/chat_id", "").toString();
+    if (telegramChatIdInput) {
+        telegramChatIdInput->setText(savedChatId);
     }
 }
 
@@ -513,4 +504,9 @@ void MainWindow::initStatsUI(QWidget* tab) {
     });
     
     layout->addWidget(refreshButton);
+}
+
+void MainWindow::handleChatIdRegistered() {
+    statusLabel->setText("Статус: Привязан (через бота)");
+    QMessageBox::information(this, "Успех", "Telegram аккаунт привязан!");
 }

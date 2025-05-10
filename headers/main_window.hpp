@@ -5,6 +5,7 @@
 #include "database_manager.hpp"
 #include "telegram_bot.hpp"
 #include "telegram_notifier.hpp"
+#include "config_manager.hpp"
 #include <QMainWindow>
 #include <QListWidget>
 #include <QLineEdit> 
@@ -16,23 +17,30 @@
 #include <QtCharts/QChartView>
 #include <QtCharts/QPieSeries>
 #include <QStackedWidget>
+#include <QLabel>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    MainWindow(ConfigManager& config, DatabaseManager& db, QWidget* parent = nullptr);
     virtual ~MainWindow();
+
+signals:
+    void chatIdUpdated();
+    
+public slots:
+    void handleChatIdRegistered();
 
 private slots:
     void onAddButtonClicked();
     void onTaskDoubleClicked(QListWidgetItem* item);
     void onFilterChanged(int index);
-    void onTelegramSettingsSaved(); 
-    void onTestConnectionClicked();
+    void onTelegramSettingsSaved();
 
 private:
-    DatabaseManager db_;
+    ConfigManager& config_;
+    DatabaseManager& db_;
     std::vector<Task> tasks;
     std::vector<TaskTemplate> templates;
 
@@ -50,8 +58,8 @@ private:
 
     QDockWidget* telegramDock;
     QAction* toggleTelegramAction;
-    QLineEdit* telegramTokenInput;
     QLineEdit* telegramChatIdInput;
+    QLabel* statusLabel;
     QPushButton* saveTelegramButton;
     QPushButton* testTelegramButton;
     std::unique_ptr<TelegramBot> telegramBot;

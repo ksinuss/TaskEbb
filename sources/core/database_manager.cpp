@@ -3,6 +3,7 @@
 #include <sqlite3.h>
 #include <stdexcept>
 #include <sstream>
+#include <iostream>
 
 DatabaseManager::DatabaseManager(const std::string& db_path) : db_(nullptr) {
     int rc = sqlite3_open_v2(
@@ -232,4 +233,50 @@ std::pair<int, int> DatabaseManager::getTaskStats() {
     sqlite3_finalize(stmt);
 
     return {completed, pending};
+}
+
+void DatabaseManager::saveChatId(const std::string& chat_id) {
+    try {
+        executeQuery("CREATE TABLE IF NOT EXISTS telegram_chats (chat_id TEXT PRIMARY KEY);");
+        
+        const std::string sql = "INSERT OR IGNORE INTO telegram_chats (chat_id) VALUES (?);";
+        sqlite3_stmt* stmt = nullptr;
+        
+        int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            throw std::runtime_error("Ошибка подготовки запроса: " + std::string(sqlite3_errmsg(db_)));
+        }
+        sqlite3_bind_text(stmt, 1, chat_id.c_str(), -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(stmt);
+        
+        sqlite3_finalize(stmt);
+        
+        if (rc != SQLITE_DONE) {
+            if (rc == SQLITE_CONSTRAINT) {
+                std::cout << "[INFO] Chat ID " << chat_id << " уже существует." << std::endl;
+            } else {
+                throw std::runtime_error("Ошибка выполнения запроса: " + std::string(sqlite3_errmsg(db_)));
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[ERROR] DatabaseManager::saveChatId: " << e.what() << std::endl;
+        throw;
+    }
+}
+
+std::vector<std::string> DatabaseManager::getAllChatIds() {
+    std::vector<std::string> chat_ids;
+    const std::string sql = "SELECT chat_id FROM telegram_chats;";
+    sqlite3_stmt* stmt = nullptr;
+    
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    throwOnError(rc, "prepare SELECT chat_ids");
+    
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        chat_ids.push_back(
+            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))
+        );
+    }
+    sqlite3_finalize(stmt);
+    return chat_ids;
 }

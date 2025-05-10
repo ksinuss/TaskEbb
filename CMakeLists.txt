@@ -12,7 +12,12 @@ set(CMAKE_AUTORCC ON)
 if(DEFINED ENV{QT_DIR})
     list(APPEND CMAKE_PREFIX_PATH "$ENV{QT_DIR}")
 endif()
-find_package(Qt6 COMPONENTS Widgets Charts REQUIRED)
+find_package(Qt6 COMPONENTS 
+    Widgets 
+    Charts 
+    Core
+    REQUIRED
+)
 
 find_package(SQLite3 REQUIRED)
 
@@ -45,6 +50,14 @@ find_package(ZLIB REQUIRED)
 
 find_package(CURL REQUIRED)
 
+include(FetchContent)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 include_directories(
     ${CMAKE_SOURCE_DIR}/doctest
     ${CMAKE_CURRENT_SOURCE_DIR}/headers
@@ -63,17 +76,22 @@ add_library(final_project_lib STATIC
     sources/core/main_window.cpp
     headers/main_window.hpp
     sources/core/telegram_bot.cpp
+    headers/telegram_bot.hpp
     sources/core/telegram_notifier.cpp
+    sources/core/config_manager.cpp
+    headers/config_manager.hpp
 )
 
 target_link_libraries(final_project_lib PRIVATE 
     Qt6::Widgets
     Qt6::Charts
+    Qt6::Core
     SQLite::SQLite3
     CURL::libcurl
     OpenSSL::SSL
     OpenSSL::Crypto
     ZLIB::ZLIB
+    nlohmann_json::nlohmann_json
 )
 
 add_executable(TaskEbbGUI sources/main.cpp)
@@ -87,6 +105,7 @@ target_link_libraries(TaskEbbGUI PRIVATE
     OpenSSL::SSL
     OpenSSL::Crypto
     ZLIB::ZLIB
+    nlohmann_json::nlohmann_json
 )
 
 qt_add_resources(final_project_lib "sources"
@@ -94,6 +113,12 @@ qt_add_resources(final_project_lib "sources"
     FILES
         sources/icons/tasks.png
         sources/icons/stats.png
+)
+
+configure_file(
+    ${CMAKE_SOURCE_DIR}/config/config.ini
+    ${CMAKE_BINARY_DIR}/config/config.ini
+    COPYONLY
 )
 
 add_subdirectory(tests)
