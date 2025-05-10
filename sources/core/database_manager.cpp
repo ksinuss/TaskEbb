@@ -280,3 +280,11 @@ std::vector<std::string> DatabaseManager::getAllChatIds() {
     sqlite3_finalize(stmt);
     return chat_ids;
 }
+
+void DatabaseManager::unlinkAllAccounts() {
+    executeQuery("DELETE FROM telegram_chats;");
+}
+
+void DatabaseManager::deleteAllChatIds() {
+    executeQuery("DELETE FROM telegram_chats;");
+}

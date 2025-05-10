@@ -25,13 +25,12 @@ class MainWindow : public QMainWindow {
 public:
     MainWindow(ConfigManager& config, DatabaseManager& db, QWidget* parent = nullptr);
     virtual ~MainWindow();
+    
+    void handleChatIdRegistered();
 
 signals:
     void chatIdUpdated();
     
-public slots:
-    void handleChatIdRegistered();
-
 private slots:
     void onAddButtonClicked();
     void onTaskDoubleClicked(QListWidgetItem* item);
@@ -58,10 +57,11 @@ private:
 
     QDockWidget* telegramDock;
     QAction* toggleTelegramAction;
-    QLineEdit* telegramChatIdInput;
+    QLabel* instructionLabel;
+    QLineEdit* chatIdInput;
     QLabel* statusLabel;
-    QPushButton* saveTelegramButton;
-    QPushButton* testTelegramButton;
+    QPushButton* saveManualButton;
+    QPushButton* unlinkButton;
     std::unique_ptr<TelegramBot> telegramBot;
     std::unique_ptr<TelegramNotifier> notifier;
     
@@ -77,6 +77,9 @@ private:
     void initTemplateUI(QWidget* tab);
     void initActiveTasksUI(QWidget* tab);
     void initStatsUI(QWidget* tab);
+    void unlinkTelegramAccount();
+    void updateUIForLinkedStatus(bool isLinked);
+    void updateTelegramStatus();
 };
 
 #endif

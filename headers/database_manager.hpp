@@ -87,6 +87,8 @@ public:
     std::pair<int, int> getTaskStats();
     void saveChatId(const std::string& chat_id);
     std::vector<std::string> getAllChatIds();
+    void unlinkAllAccounts();
+    void deleteAllChatIds();
 
 private:
     sqlite3* db_;  ///< SQLite database connection handle
