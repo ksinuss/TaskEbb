@@ -44,7 +44,7 @@ std::string Task::get_description() const {
     return description_;
 }
 
-std::chrono::hours Task::get_interval() const { 
+std::chrono::hours Task::get_interval() const noexcept{ 
     return interval_; 
 }
 
@@ -75,4 +75,19 @@ void Task::set_title(const std::string& title) {
 
 void Task::set_description(const std::string& description) {
     description_ = description;
+}
+
+void Task::mark_execution(const PeriodicTracker::TimePoint& timestamp) {
+    tracker_.mark_execution(timestamp);
+}
+
+std::chrono::hours Task::get_calculated_interval() const {
+    if (!tracker_.is_interval_set()) {
+        throw std::logic_error("Интервал не рассчитан");
+    }
+    return duration_cast<std::chrono::hours>(tracker_.get_interval());
+}
+
+const PeriodicTracker& Task::get_tracker() const noexcept {
+    return tracker_;
 }

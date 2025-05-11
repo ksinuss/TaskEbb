@@ -39,6 +39,9 @@ public:
      */
     bool is_interval_set() const noexcept;
 
+    const std::optional<TimePoint>& get_first_execution() const noexcept;
+    const std::optional<TimePoint>& get_second_execution() const noexcept;
+
 private:
     std::optional<TimePoint> first_execution_;
     std::optional<TimePoint> second_execution_;

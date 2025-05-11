@@ -3,6 +3,7 @@
 
 #include <string>
 #include <chrono>
+#include "periodic_tracker.hpp"
 
 /**
  * @class Task
@@ -41,7 +42,7 @@ public:
      * @brief Get the interval object
      * @return Interval in hours as std::chrono::hours 
      */
-    std::chrono::hours get_interval() const;
+    std::chrono::hours get_interval() const noexcept;
 
     /**
      * @brief Check task completion status
@@ -64,6 +65,9 @@ public:
     void set_id(const std::string& id);
     void set_title(const std::string& title);
     void set_description(const std::string& description);
+    void mark_execution(const PeriodicTracker::TimePoint& timestamp);
+    std::chrono::hours get_calculated_interval() const;
+    const PeriodicTracker& get_tracker() const noexcept;
 
 private:
     char id_[19];                   ///< Unique ID (13 digits + '_' + 4 digits + '\0')
@@ -71,6 +75,7 @@ private:
     std::string description_;       ///< Task description
     bool is_completed_;             ///< Completion status
     std::chrono::hours interval_;   ///< Repetition interval in hours
+    PeriodicTracker tracker_;
 };
 
 #endif

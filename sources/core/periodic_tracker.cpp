@@ -1,7 +1,7 @@
 #include "periodic_tracker.hpp"
 #include <stdexcept>
 
-void PeriodicTracker::mark_execution(const TimePoint& timestamp) {
+void PeriodicTracker::mark_execution(const PeriodicTracker::TimePoint& timestamp) {
     if (first_execution_.has_value() && second_execution_.has_value()) {
         throw std::logic_error("Maximum of two executions can be recorded");
     }
@@ -31,4 +31,12 @@ std::optional<PeriodicTracker::TimePoint> PeriodicTracker::get_next_execution_ti
 
 bool PeriodicTracker::is_interval_set() const noexcept {
     return interval_.has_value();
+}
+
+const std::optional<PeriodicTracker::TimePoint>& PeriodicTracker::get_first_execution() const noexcept {
+    return first_execution_;
+}
+
+const std::optional<PeriodicTracker::TimePoint>& PeriodicTracker::get_second_execution() const noexcept {
+    return second_execution_;
 }

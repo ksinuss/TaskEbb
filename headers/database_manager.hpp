@@ -90,6 +90,8 @@ public:
     void unlinkAllAccounts();
     void deleteAllChatIds();
 
+    void addColumnIfNotExists(const std::string& table, const std::string& column, const std::string& type);
+
 private:
     sqlite3* db_;  ///< SQLite database connection handle
 

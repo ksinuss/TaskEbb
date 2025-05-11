@@ -30,8 +30,13 @@ void DatabaseManager::initialize() {
         "title TEXT NOT NULL, "
         "description TEXT, "
         "is_completed INTEGER DEFAULT 0, "
-        "interval_hours INTEGER DEFAULT 0);"
+        "interval_hours INTEGER DEFAULT 0, "
+        "first_execution INTEGER, "
+        "second_execution INTEGER)"
     );
+
+    addColumnIfNotExists("tasks", "first_execution", "INTEGER");
+    addColumnIfNotExists("tasks", "second_execution", "INTEGER");
 
     executeQuery(
         "CREATE TABLE IF NOT EXISTS templates ("
@@ -48,6 +53,31 @@ void DatabaseManager::initialize() {
         "task_id TEXT, "
         "message TEXT);"
     );
+}
+
+void DatabaseManager::addColumnIfNotExists(const std::string& table, const std::string& column, const std::string& type) {
+    std::string checkSql = 
+        "SELECT COUNT(*) FROM pragma_table_info('" + table + "') "
+        "WHERE name = '" + column + "'";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, checkSql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        throw std::runtime_error("Failed to check column existence");
+    }
+
+    bool columnExists = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        columnExists = (sqlite3_column_int(stmt, 0) > 0);
+    }
+    sqlite3_finalize(stmt);
+
+    if (!columnExists) {
+        std::string alterSql = 
+            "ALTER TABLE " + table + 
+            " ADD COLUMN " + column + " " + type;
+        executeQuery(alterSql);
+    }
 }
 
 void DatabaseManager::throwOnError(int rc, const std::string& context) {
@@ -164,6 +194,12 @@ void DatabaseManager::bindTaskParameters(sqlite3_stmt* stmt, const Task& task) {
     sqlite3_bind_text(stmt, 3, task.get_description().c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 4, task.is_completed() ? 1 : 0);
     sqlite3_bind_int(stmt, 5, task.get_interval().count());
+
+    auto first_exec = task.get_tracker().get_first_execution();
+    auto second_exec = task.get_tracker().get_second_execution();
+    
+    sqlite3_bind_int64(stmt, 6, first_exec.has_value() ? std::chrono::system_clock::to_time_t(*first_exec) : 0);
+    sqlite3_bind_int64(stmt, 7, second_exec.has_value() ? std::chrono::system_clock::to_time_t(*second_exec) : 0);
 }
 
 Task DatabaseManager::mapTaskFromRow(sqlite3_stmt* stmt) {
@@ -171,9 +207,20 @@ Task DatabaseManager::mapTaskFromRow(sqlite3_stmt* stmt) {
         reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title
         reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description
     );
-    task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))); // id
+    
+    task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
     task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
     task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4)));
+    
+    if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+        time_t first_exec = sqlite3_column_int64(stmt, 5);
+        task.mark_execution(std::chrono::system_clock::from_time_t(first_exec));
+    }
+    if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) {
+        time_t second_exec = sqlite3_column_int64(stmt, 6);
+        task.mark_execution(std::chrono::system_clock::from_time_t(second_exec));
+    }
+
     return task;
 }
 

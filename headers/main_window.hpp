@@ -18,6 +18,7 @@
 #include <QtCharts/QPieSeries>
 #include <QStackedWidget>
 #include <QLabel>
+#include <QSpinBox>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -46,6 +47,7 @@ private:
     QListWidget* taskList = nullptr;
     QLineEdit* titleInput;
     QTextEdit* descInput;
+    QSpinBox* intervalInput;
     QComboBox* filterCombo;
     QPushButton* addButton;
 

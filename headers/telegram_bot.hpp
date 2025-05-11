@@ -3,9 +3,11 @@
 
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <string>
 #include <memory>
 #include <thread>
+#include <chrono>
 #include "config_manager.hpp"
 #include "database_manager.hpp"
 
@@ -37,6 +39,9 @@ private:
     DatabaseManager& db_;
     bool running_;
     std::thread polling_thread_;
+
+    QTimer reminderTimer;
+    void check_reminders();
 };
 
 #endif

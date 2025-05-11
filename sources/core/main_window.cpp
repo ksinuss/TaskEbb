@@ -71,14 +71,21 @@ MainWindow::~MainWindow() {
 void MainWindow::onAddButtonClicked() {
     QString title = titleInput->text();
     QString description = descInput->toPlainText();
+    int interval = intervalInput->value();
 
     if (title.isEmpty()) {
         QMessageBox::warning(this, "Ошибка", "Заголовок задачи не может быть пустым.");
         return;
     }
 
+    if (interval <= 0) {
+        QMessageBox::warning(this, "Ошибка", "Интервал должен быть больше 0.");
+        return;
+    }
+
     try {
         Task task(title.toStdString(), description.toStdString());
+        task.set_interval(std::chrono::hours(interval));
         db_.saveTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& task) {
             sqlite3_bind_text(stmt, 1, task.get_id().c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_text(stmt, 2, task.get_title().c_str(), -1, SQLITE_TRANSIENT);
@@ -91,8 +98,11 @@ void MainWindow::onAddButtonClicked() {
         db_.logAction("ADD", task.get_id(), "Создана задача: " + task.get_title());
         titleInput->clear();
         descInput->clear();
+        intervalInput->setValue(24);
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Ошибка", "Ошибка создания задачи: " + QString(e.what()));
     } catch (...) {
-        QMessageBox::critical(this, "Ошибка", "Не удалось сохранить задачу.");
+        QMessageBox::critical(this, "Ошибка", "Неизвестная ошибка");
     }
 }
 
@@ -290,13 +300,18 @@ void MainWindow::loadTasksFromDB() {
     try {
         tasks = db_.getAllTasks("tasks", [](sqlite3_stmt* stmt) {
             Task task(
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), 
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))
+                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title
+                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description
             );
+            task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))); // id
             task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
-            task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4)));
+            
+            int interval_hours = sqlite3_column_int(stmt, 4);
+            task.set_interval(std::chrono::hours(interval_hours));
+
             return task;
         });
+
         for (const auto& task : tasks) {
             addTaskToList(task);
         }
@@ -314,6 +329,9 @@ void MainWindow::addTaskToList(const Task& task) {
     item->setToolTip(description.isEmpty() ? "Описание отсутствует" : "Описание: " + description);
 
     item->setData(Qt::UserRole, QString::fromStdString(task.get_id()));
+
+    QString interval = QString::number(task.get_interval().count()) + " ч";
+    item->setText(QString("%1 (%2)").arg(item->text(), interval));
 
     if (task.is_completed()) {
         item->setForeground(Qt::gray);
@@ -420,12 +438,19 @@ void MainWindow::initActiveTasksUI(QWidget* tab) {
     QFormLayout* form = new QFormLayout();
     titleInput = new QLineEdit(this);
     descInput = new QTextEdit(this);
+    intervalInput = new QSpinBox(this);
+    
+    intervalInput->setMinimum(1); ///< min val = 1h
+    intervalInput->setMaximum(24 * 365); ///< max val = year in h
+    intervalInput->setValue(24);
+
     addButton = new QPushButton("Добавить задачу", this);
     filterCombo = new QComboBox(this);
     filterCombo->addItems({"Все задачи", "Выполненные", "Невыполненные"});
 
     form->addRow("Заголовок:", titleInput);
     form->addRow("Описание:", descInput);
+    form->addRow("Интервал (часы):", intervalInput); 
 
     taskList = new QListWidget(tab);
     taskList->setContextMenuPolicy(Qt::CustomContextMenu);
