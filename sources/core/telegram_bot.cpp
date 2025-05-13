@@ -28,6 +28,10 @@ TelegramBot::~TelegramBot() {
 void TelegramBot::start() {
     running_ = true;
     polling_thread_ = std::thread(&TelegramBot::pollingLoop, this);
+
+    reminderTimer.setInterval(60000);
+    connect(&reminderTimer, &QTimer::timeout, this, &TelegramBot::check_reminders);
+    reminderTimer.start();
 }
 
 void TelegramBot::stop() {
@@ -283,7 +287,8 @@ void TelegramBot::check_reminders() {
             task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))); // id
             task.mark_completed(sqlite3_column_int(stmt, 3) == 1); // is_completed
             task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4))); // interval
-            
+            task.set_recurring(sqlite3_column_int(stmt, 7) == 1); // is_recurring
+
             time_t first_exec = sqlite3_column_int64(stmt, 5);
             time_t second_exec = sqlite3_column_int64(stmt, 6);
             if (first_exec > 0) {
@@ -299,18 +304,26 @@ void TelegramBot::check_reminders() {
             return task;
         });
 
-        for (auto task : tasks) {
-            if (auto next_time = task.get_tracker().get_next_execution_time()) {
-                if (std::chrono::system_clock::now() >= *next_time) {
-                    send_message("⏰ Напоминание: " + task.get_title(), chat_id);
-                    task.mark_execution(std::chrono::system_clock::now());
-                    db_.updateTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
-                        sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
-                        sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
-                        sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
-                        sqlite3_bind_int(stmt, 4, t.get_interval().count());
-                        sqlite3_bind_text(stmt, 5, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
-                    });
+        for (auto& task : tasks) {
+            if (task.is_recurring()) {
+                if (auto next_time = task.get_tracker().get_next_execution_time()) {
+                    if (std::chrono::system_clock::now() >= *next_time) {
+                        send_message("⏰ Напоминание: " + task.get_title(), chat_id);
+                        task.mark_execution(std::chrono::system_clock::now());
+                        db_.updateTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
+                            sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
+                            sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
+                            sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
+                            sqlite3_bind_int(stmt, 4, t.get_interval().count());
+                            sqlite3_bind_int(stmt, 5, t.is_recurring() ? 1 : 0); // is_recurring
+                            sqlite3_bind_text(stmt, 6, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
+                        });
+                    }
+                }
+            } else {
+                if (task.is_completed()) {
+                    db_.deleteTask(task.get_id(), "tasks");
+                    send_message("🗑️ Задача удалена: " + task.get_title(), chat_id);
                 }
             }
         }

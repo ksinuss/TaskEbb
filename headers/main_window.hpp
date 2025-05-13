@@ -82,6 +82,8 @@ private:
     void unlinkTelegramAccount();
     void updateUIForLinkedStatus(bool isLinked);
     void updateTelegramStatus();
+    void formatTaskItem(QListWidgetItem* item, const Task& task);
+    void initUI();
 };
 
 #endif

@@ -32,11 +32,13 @@ void DatabaseManager::initialize() {
         "is_completed INTEGER DEFAULT 0, "
         "interval_hours INTEGER DEFAULT 0, "
         "first_execution INTEGER, "
-        "second_execution INTEGER)"
+        "second_execution INTEGER, "
+        "is_recurring BOOLEAN DEFAULT FALSE)"
     );
 
     addColumnIfNotExists("tasks", "first_execution", "INTEGER");
     addColumnIfNotExists("tasks", "second_execution", "INTEGER");
+    addColumnIfNotExists("tasks", "is_recurring", "BOOLEAN DEFAULT FALSE");
 
     executeQuery(
         "CREATE TABLE IF NOT EXISTS templates ("
@@ -100,8 +102,8 @@ void DatabaseManager::executeQuery(const std::string& sql) {
 
 void DatabaseManager::saveTask(const Task& task, const std::string& table_name, const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters) {
     const std::string sql = 
-        "INSERT INTO tasks (id, title, description, is_completed, interval_hours) "
-        "VALUES (?, ?, ?, ?, ?);";
+        "INSERT INTO tasks (id, title, description, is_completed, interval_hours, is_recurring) "
+        "VALUES (?, ?, ?, ?, ?, ?);";
     
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
@@ -220,6 +222,8 @@ Task DatabaseManager::mapTaskFromRow(sqlite3_stmt* stmt) {
         time_t second_exec = sqlite3_column_int64(stmt, 6);
         task.mark_execution(std::chrono::system_clock::from_time_t(second_exec));
     }
+
+    task.set_recurring(sqlite3_column_int(stmt, 7) == 1);
 
     return task;
 }

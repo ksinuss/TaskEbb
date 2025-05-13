@@ -68,6 +68,8 @@ public:
     void mark_execution(const PeriodicTracker::TimePoint& timestamp);
     std::chrono::hours get_calculated_interval() const;
     const PeriodicTracker& get_tracker() const noexcept;
+    void set_recurring(bool status) noexcept;
+    bool is_recurring() const noexcept;
 
 private:
     char id_[19];                   ///< Unique ID (13 digits + '_' + 4 digits + '\0')
@@ -76,6 +78,7 @@ private:
     bool is_completed_;             ///< Completion status
     std::chrono::hours interval_;   ///< Repetition interval in hours
     PeriodicTracker tracker_;
+    bool is_recurring_ = false;
 };
 
 #endif

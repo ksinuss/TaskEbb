@@ -78,7 +78,11 @@ void Task::set_description(const std::string& description) {
 }
 
 void Task::mark_execution(const PeriodicTracker::TimePoint& timestamp) {
-    tracker_.mark_execution(timestamp);
+    if (is_recurring_) {
+        tracker_.mark_execution(timestamp);
+    } else {
+        mark_completed(true);
+    }
 }
 
 std::chrono::hours Task::get_calculated_interval() const {
@@ -90,4 +94,12 @@ std::chrono::hours Task::get_calculated_interval() const {
 
 const PeriodicTracker& Task::get_tracker() const noexcept {
     return tracker_;
+}
+
+void Task::set_recurring(bool status) noexcept { 
+    is_recurring_ = status; 
+}
+
+bool Task::is_recurring() const noexcept { 
+    return is_recurring_; 
 }

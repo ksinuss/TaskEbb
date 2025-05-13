@@ -23,43 +23,30 @@ MainWindow::MainWindow(ConfigManager& config, DatabaseManager& db, QWidget* pare
     QCoreApplication::setOrganizationName("ksinuss");
     QCoreApplication::setApplicationName("TaskEbb");
     
-    mainStack = new QStackedWidget(this);
-    setCentralWidget(mainStack);
-
-    tasksTabs = new QTabWidget();
-    QWidget* activeTasksTab = new QWidget();
-    initActiveTasksUI(activeTasksTab);
-    tasksTabs->addTab(activeTasksTab, "Активные задачи");
-    
-    QWidget* statsTab = new QWidget();
-    initStatsUI(statsTab);
-    tasksTabs->addTab(statsTab, "Статистика");
-    mainStack->addWidget(tasksTabs);
-
-    templatesTabs = new QTabWidget();
-    QWidget* templatesTab = new QWidget();
-    initTemplateUI(templatesTab);
-    templatesTabs->addTab(templatesTab, "Управление шаблонами");
-    mainStack->addWidget(templatesTabs);
-
-    mainStack->setCurrentIndex(0);
-
-    initToolbar();
-    initTelegramUI();
-    loadTelegramSettings();
-    updateTelegramStatus();
-
-    resize(800, 600);
-
-    telegramBot = std::make_unique<TelegramBot>(config_, db_);
-    connect(telegramBot.get(), &TelegramBot::chatIdRegistered, this, &MainWindow::handleChatIdRegistered);
+    initUI();
 
     try {
+        loadTasksFromDB();
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить задачи: " + QString(e.what()));
+    }
+
+    loadTelegramSettings();
+    updateTelegramStatus();
+    
+    resize(800, 600);
+
+    try {
+        telegramBot = std::make_unique<TelegramBot>(config_, db_);
+        connect(telegramBot.get(), &TelegramBot::chatIdRegistered, this, &MainWindow::handleChatIdRegistered);
         telegramBot->start();
     } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Ошибка", QString::fromStdString(e.what()));
-        exit(1);
+        QMessageBox::critical(this, "Ошибка", "Не удалось запустить Telegram бота: " + QString(e.what()));
     }
+
+    QSettings settings;
+    restoreGeometry(settings.value("geometry").toByteArray());
+    restoreState(settings.value("windowState").toByteArray());
 }
 
 MainWindow::~MainWindow() {
@@ -67,6 +54,63 @@ MainWindow::~MainWindow() {
         telegramBot->stop();
     }
 }
+
+void MainWindow::initUI() {
+    mainStack = new QStackedWidget(this);
+    setCentralWidget(mainStack);
+
+    tasksTabs = new QTabWidget();
+    QWidget* activeTasksTab = new QWidget();
+    initActiveTasksUI(activeTasksTab);
+    tasksTabs->addTab(activeTasksTab, "Активные задачи");
+
+    QWidget* statsTab = new QWidget();
+    initStatsUI(statsTab);
+    tasksTabs->addTab(statsTab, "Статистика");
+
+    mainStack->addWidget(tasksTabs);
+
+    templatesTabs = new QTabWidget();
+    QWidget* templatesTab = new QWidget();
+    initTemplateUI(templatesTab);
+    templatesTabs->addTab(templatesTab, "Управление шаблонами");
+    
+    mainStack->addWidget(templatesTabs);
+
+    QToolBar* toolbar = new QToolBar("Панель управления", this);
+    toolbar->setMovable(false);
+    addToolBar(toolbar);
+
+    QAction* tasksAction = new QAction("Задачи", this);
+    QAction* templatesAction = new QAction("Шаблоны", this);
+    connect(tasksAction, &QAction::triggered, this, [this]() { mainStack->setCurrentIndex(0); });
+    connect(templatesAction, &QAction::triggered, this, [this]() { mainStack->setCurrentIndex(1); });
+    
+    toolbar->addAction(tasksAction);
+    toolbar->addAction(templatesAction);
+
+    QWidget* spacer = new QWidget();
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    toolbar->addWidget(spacer);
+
+    toggleTelegramAction = new QAction("Привязать Telegram", this);
+    toggleTelegramAction->setCheckable(true);
+    connect(toggleTelegramAction, &QAction::toggled, this, [this](bool checked) {
+        telegramDock->setVisible(checked);
+    });
+    toolbar->addAction(toggleTelegramAction);
+
+    initTelegramUI(); 
+
+    QPalette palette = QApplication::palette();
+    taskList->setStyleSheet(QString(
+        "QListWidget { background: %1; color: %2; }"
+        "QListWidget::item:hover { background: %3; }"
+    ).arg(palette.color(QPalette::Base).name())
+     .arg(palette.color(QPalette::Text).name())
+     .arg(palette.color(QPalette::Highlight).name()));
+}
+
 
 void MainWindow::onAddButtonClicked() {
     QString title = titleInput->text();
@@ -164,8 +208,7 @@ void MainWindow::onFilterChanged(int index) {
 }
 
 void MainWindow::updateTaskInList(QListWidgetItem* item, const Task& task) {
-    QString status = task.is_completed() ? "[✓]" : "[ ]";
-    item->setText(QString("%1 %2").arg(status, QString::fromStdString(task.get_title())));
+    formatTaskItem(item, task);
 }
 
 void MainWindow::onTelegramSettingsSaved() {
@@ -312,6 +355,8 @@ void MainWindow::loadTasksFromDB() {
             return task;
         });
 
+        taskList->clear();
+
         for (const auto& task : tasks) {
             addTaskToList(task);
         }
@@ -321,39 +366,34 @@ void MainWindow::loadTasksFromDB() {
 }
 
 void MainWindow::addTaskToList(const Task& task) {
-    QListWidgetItem* item = new QListWidgetItem(QString::fromStdString(task.get_title()), taskList);
+    QListWidgetItem* item = new QListWidgetItem();
     
-    item->setCheckState(task.is_completed() ? Qt::Checked : Qt::Unchecked);
+    formatTaskItem(item, task);
     
-    QString description = QString::fromStdString(task.get_description());
-    item->setToolTip(description.isEmpty() ? "Описание отсутствует" : "Описание: " + description);
+    QString taskId = QString::fromStdString(task.get_id());
+    item->setData(Qt::UserRole, taskId);
+    
+    taskList->addItem(item);
 
-    item->setData(Qt::UserRole, QString::fromStdString(task.get_id()));
-
-    QString interval = QString::number(task.get_interval().count()) + " ч";
-    item->setText(QString("%1 (%2)").arg(item->text(), interval));
-
-    if (task.is_completed()) {
-        item->setForeground(Qt::gray);
-        item->setFont(QFont("Arial", 10, QFont::StyleItalic));
-    }
-
-    connect(taskList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
-        QString taskId = item->data(Qt::UserRole).toString();
+    connect(taskList, &QListWidget::itemChanged, this, [this, item, taskId]() {
         bool completed = (item->checkState() == Qt::Checked);
         
-        for (auto& task : tasks) {
-            if (task.get_id() == taskId.toStdString()) {
-                task.mark_completed(completed);
-                db_.updateTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
-                    sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);  // title
-                    sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT); // description
-                    sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0); // is_completed
-                    sqlite3_bind_int(stmt, 4, t.get_interval().count()); // interval_hours
-                    sqlite3_bind_text(stmt, 5, t.get_id().c_str(), -1, SQLITE_TRANSIENT); // id (WHERE)
-                });
-                break;
-            }
+        auto it = std::find_if(tasks.begin(), tasks.end(), [taskId](const Task& t) {
+            return t.get_id() == taskId.toStdString();
+        });
+        
+        if (it != tasks.end()) {
+            it->mark_completed(completed);
+            db_.updateTask(*it, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
+                sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
+                sqlite3_bind_int(stmt, 4, t.get_interval().count());
+                sqlite3_bind_int(stmt, 5, t.is_recurring() ? 1 : 0);
+                sqlite3_bind_text(stmt, 6, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
+            });
+
+            formatTaskItem(item, *it);
         }
     });
 }
@@ -438,11 +478,14 @@ void MainWindow::initActiveTasksUI(QWidget* tab) {
     QFormLayout* form = new QFormLayout();
     titleInput = new QLineEdit(this);
     descInput = new QTextEdit(this);
-    intervalInput = new QSpinBox(this);
     
+    intervalInput = new QSpinBox(this);
     intervalInput->setMinimum(1); ///< min val = 1h
     intervalInput->setMaximum(24 * 365); ///< max val = year in h
     intervalInput->setValue(24);
+    
+    QCheckBox* recurringCheckbox = new QCheckBox("Периодическая задача", this);
+    connect(recurringCheckbox, &QCheckBox::toggled, intervalInput, &QSpinBox::setEnabled);
 
     addButton = new QPushButton("Добавить задачу", this);
     filterCombo = new QComboBox(this);
@@ -450,7 +493,8 @@ void MainWindow::initActiveTasksUI(QWidget* tab) {
 
     form->addRow("Заголовок:", titleInput);
     form->addRow("Описание:", descInput);
-    form->addRow("Интервал (часы):", intervalInput); 
+    form->addRow("Интервал (часы):", intervalInput);
+    form->addRow(recurringCheckbox); 
 
     taskList = new QListWidget(tab);
     taskList->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -572,4 +616,26 @@ void MainWindow::unlinkTelegramAccount() {
             QMessageBox::critical(this, "Ошибка", "Не удалось отвязать аккаунт");
         }
     }
+}
+
+void MainWindow::formatTaskItem(QListWidgetItem* item, const Task& task) {
+    QString title = QString::fromStdString(task.get_title());
+    QString interval = QString::number(task.get_interval().count()) + " ч";
+
+    if (task.is_recurring()) {
+        title += " 🔄";
+    }
+
+    item->setText(QString("%1 (%2)").arg(title).arg(interval));
+    item->setCheckState(task.is_completed() ? Qt::Checked : Qt::Unchecked);
+
+    QColor textColor = QApplication::palette().color(QPalette::WindowText);
+    item->setForeground(task.is_completed() ? Qt::gray : textColor);
+    item->setFont(QFont("Arial", 10, task.is_completed() ? QFont::StyleItalic : QFont::StyleNormal));
+
+    QString tooltip = "Описание: " + QString::fromStdString(task.get_description());
+    if (task.is_recurring()) {
+        tooltip += "\nПериодическая задача";
+    }
+    item->setToolTip(tooltip);
 }
