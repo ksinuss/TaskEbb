@@ -104,7 +104,6 @@ private:
     void initUI();
     void initTaskInputFields();
     void setupDeadlineFields();
-    QWidget* createDeadlineInputGroup();
     void updateStatsUI();
 };
 

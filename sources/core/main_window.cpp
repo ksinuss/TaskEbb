@@ -127,25 +127,30 @@ void MainWindow::onAddButtonClicked() {
             deadline = QDateTime();
         }
         if (type == Task::Type::Deadline) {
-            if (!dateEdit->date().isValid()) {
-                QMessageBox::warning(this, "Ошибка", "Некорректная дата дедлайна!");
+            QDate date = dateEdit->date();
+            QTime time = timeCheckbox->isChecked() ? timeEdit->time() : QTime(23, 59);
+            deadline = QDateTime(date, time);
+            
+            if (!deadline.isValid() || deadline < QDateTime::currentDateTime()) {
+                QMessageBox::warning(this, "Ошибка", "Некорректный дедлайн!");
                 return;
             }
-            if (!deadlineEdit) {
-                qCritical() << "deadlineEdit is not initialized!";
-                return;
-            }
-            deadline = deadlineEdit->dateTime();
         }
         if (type == Task::Type::Recurring) {
+            if (intervalInput->value() <= 0) {
+                QMessageBox::warning(this, "Ошибка", "Укажите интервал!");
+                return;
+            }
             interval = std::chrono::hours(intervalInput->value());
             if (endDateCheckbox->isChecked()) {
                 endDate.setDate(endDateEdit->date());
                 endDate.setTime(QTime(23, 59, 59));
-                
+                if (!endDate.isValid()) {
+                    QMessageBox::warning(this, "Ошибка", "Некорректная дата окончания!");
+                    return;
+                }
                 if (endDate <= QDateTime::currentDateTime()) {
-                    QMessageBox::warning(this, "Ошибка", 
-                        "Дата окончания должна быть в будущем!");
+                    QMessageBox::warning(this, "Ошибка", "Дата окончания должна быть в будущем!");
                     return;
                 }
             }
@@ -465,16 +470,19 @@ void MainWindow::addTaskToList(const Task& task) {
         
         if (it != tasks.end()) {
             it->mark_completed(completed);
-            db_.updateTask(*it, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
-                sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
-                sqlite3_bind_int(stmt, 4, t.get_interval().count());
-                sqlite3_bind_int(stmt, 5, t.is_recurring() ? 1 : 0);
-                sqlite3_bind_text(stmt, 6, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
-            });
-
-            formatTaskItem(item, *it);
+            try {
+                db_.updateTask(*it, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
+                    sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
+                    sqlite3_bind_int(stmt, 4, t.get_interval().count());
+                    sqlite3_bind_int(stmt, 5, t.is_recurring() ? 1 : 0);
+                    sqlite3_bind_text(stmt, 6, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
+                });
+                formatTaskItem(item, *it);
+            } catch (const std::exception& e) {
+                QMessageBox::critical(this, "Ошибка", "Ошибка обновления задачи: " + QString(e.what()));
+            }
         }
     });
 }
@@ -777,33 +785,29 @@ void MainWindow::initTaskInputFields() {
 void MainWindow::setupDeadlineFields() {
     deadlineContainer = new QWidget();
     QVBoxLayout* deadlineLayout = new QVBoxLayout(deadlineContainer);
-    
-    deadlineEdit = new QDateTimeEdit(QDateTime::currentDateTime(), deadlineContainer);
-    deadlineEdit->setCalendarPopup(true);
-    
-    QWidget* timeGroup = createDeadlineInputGroup();
-    deadlineLayout->addWidget(deadlineEdit);
-    deadlineLayout->addWidget(timeGroup);
-}
+    deadlineLayout->setAlignment(Qt::AlignTop);
 
-QWidget* MainWindow::createDeadlineInputGroup() {
-    QWidget* timeContainer = new QWidget();
-    QHBoxLayout* timeLayout = new QHBoxLayout(timeContainer);
-    
-    timeCheckbox = new QCheckBox("Указать точное время");
+    QHBoxLayout* dateRow = new QHBoxLayout();
+    QLabel* dateLabel = new QLabel("Дата дедлайна:");
+    dateEdit = new QDateEdit(QDate::currentDate());
+    dateEdit->setCalendarPopup(true);
+    dateEdit->setDisplayFormat("dd.MM.yyyy");
+    dateEdit->setFixedWidth(120);
+    dateRow->addWidget(dateLabel);
+    dateRow->addWidget(dateEdit);
+    deadlineLayout->addLayout(dateRow);
+
+    QHBoxLayout* timeRow = new QHBoxLayout();
+    timeCheckbox = new QCheckBox("Указать время:");
     timeEdit = new QTimeEdit(QTime(23, 59));
     timeEdit->setDisplayFormat("HH:mm");
+    timeEdit->setFixedWidth(80); 
     timeEdit->setVisible(false);
-    
-    connect(timeCheckbox, &QCheckBox::toggled, [this](bool checked) {
-        timeEdit->setVisible(checked);
-        if (!checked) timeEdit->setTime(QTime(23, 59));
-    });
-    
-    timeLayout->addWidget(timeCheckbox);
-    timeLayout->addWidget(timeEdit);
-    
-    return timeContainer;
+    timeRow->addWidget(timeCheckbox);
+    timeRow->addWidget(timeEdit);
+    deadlineLayout->addLayout(timeRow);
+
+    connect(timeCheckbox, &QCheckBox::toggled, timeEdit, &QTimeEdit::setVisible);
 }
 
 void MainWindow::updateStatsUI() {

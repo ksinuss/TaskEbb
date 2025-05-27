@@ -29,6 +29,7 @@ Task::Task(const std::string& title, const std::string& description, Type type, 
         if (interval_.count() <= 0) {
             throw std::invalid_argument("Интервал для периодической задачи должен быть положительным.");
         }
+        is_recurring_ = true;
     }
 
     if (endDate_.isValid() && endDate_ <= QDateTime::currentDateTime()) {
@@ -166,7 +167,6 @@ void Task::set_type(Type new_type, const QDateTime& deadline, std::chrono::hours
             interval_ = std::chrono::hours(0); 
             endDate_ = QDateTime();
             break;
-
         case Type::Recurring:
             if (interval.count() <= 0) {
                 throw std::invalid_argument("Интервал должен быть положительным.");
@@ -174,8 +174,9 @@ void Task::set_type(Type new_type, const QDateTime& deadline, std::chrono::hours
             interval_ = interval;
             endDate_ = end_date.isValid() ? end_date : QDateTime();
             deadline_ = QDateTime();
+            is_recurring_ = true;
+            tracker_.mark_execution(std::chrono::system_clock::now());
             break;
-
         case Type::OneTime:
             deadline_ = QDateTime();
             interval_ = std::chrono::hours(0);

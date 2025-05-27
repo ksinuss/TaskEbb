@@ -105,14 +105,18 @@ void DatabaseManager::throwOnError(int rc, const std::string& context) {
 }
 
 void DatabaseManager::executeQuery(const std::string& sql) {
-    std::cout << "[SQL] Executing: " << sql << std::endl;
-    char* errMsg = nullptr;
-    int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &errMsg);
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) {
-        std::cerr << "[SQL ERROR] " << errMsg << " (query: " << sql << ")" << std::endl;
-        sqlite3_free(errMsg);
-        throw std::runtime_error("SQL error");
+        throw std::runtime_error("Ошибка подготовки запроса");
     }
+    
+    for (size_t i = 0; i < params.size(); ++i) {
+        sqlite3_bind_text(stmt, i + 1, params[i].c_str(), -1, SQLITE_TRANSIENT);
+    }
+    
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 void DatabaseManager::saveTask(const Task& task, const std::string& table_name, const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters) {
@@ -133,25 +137,6 @@ void DatabaseManager::saveTask(const Task& task, const std::string& table_name, 
     sqlite3_finalize(stmt);
 }
 
-std::vector<Task> DatabaseManager::getAllTasks(const std::string& table_name, const std::function<Task(sqlite3_stmt*)>& rowMapper) {
-    std::vector<Task> tasks;
-    if (!tableExists("tasks")) {
-        throw std::runtime_error("Таблица 'tasks' не существует.");
-    }
-    const std::string sql = "SELECT * FROM tasks;";
-    sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
-    throwOnError(rc, "prepare SELECT tasks");
-    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        tasks.push_back(mapTaskFromRow(stmt));
-    }
-    if (rc != SQLITE_DONE) {
-        throwOnError(rc, "fetch tasks");
-    }
-    sqlite3_finalize(stmt);
-    return tasks;
-}
-
 void DatabaseManager::updateTask(const Task& task, const std::string& table_name, const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters) {
     const std::string sql = 
         "UPDATE tasks SET "
@@ -164,11 +149,33 @@ void DatabaseManager::updateTask(const Task& task, const std::string& table_name
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
     throwOnError(rc, "prepare UPDATE task");
 
-    sqlite3_bind_text(stmt, 1, task.get_title().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, task.get_description().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 3, task.is_completed() ? 1 : 0);
-    sqlite3_bind_int(stmt, 4, task.get_interval().count());
-    sqlite3_bind_text(stmt, 5, task.get_id().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, task.get_title().c_str(), -1, SQLITE_TRANSIENT);       // title
+    sqlite3_bind_text(stmt, 2, task.get_description().c_str(), -1, SQLITE_TRANSIENT); // description
+    sqlite3_bind_int(stmt, 3, task.is_completed() ? 1 : 0);                           // is_completed
+
+    auto first_exec = task.get_tracker().get_first_execution();
+    auto second_exec = task.get_tracker().get_second_execution();
+    sqlite3_bind_int64(stmt, 4, first_exec.has_value() ? std::chrono::system_clock::to_time_t(*first_exec) : 0);
+    sqlite3_bind_int64(stmt, 5, second_exec.has_value() ? std::chrono::system_clock::to_time_t(*second_exec) : 0);
+
+    sqlite3_bind_int(stmt, 6, task.is_recurring() ? 1 : 0);                          // is_recurring
+    sqlite3_bind_int(stmt, 7, static_cast<int>(task.get_type()));                    // type
+
+    if (task.get_type() == Task::Type::Deadline && task.get_deadline().isValid()) {
+        sqlite3_bind_int64(stmt, 8, task.get_deadline().toSecsSinceEpoch());
+    } else {
+        sqlite3_bind_null(stmt, 8);
+    }
+
+    sqlite3_bind_int(stmt, 9, task.get_interval().count());                          // interval_hours
+
+    if (task.get_end_date().isValid()) {
+        sqlite3_bind_int64(stmt, 10, task.get_end_date().toSecsSinceEpoch());
+    } else {
+        sqlite3_bind_null(stmt, 10);
+    }
+
+    sqlite3_bind_text(stmt, 11, task.get_id().c_str(), -1, SQLITE_TRANSIENT);        // id
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -227,7 +234,7 @@ void DatabaseManager::bindTaskParameters(sqlite3_stmt* stmt, const Task& task) {
     if (task.get_type() == Task::Type::Deadline && task.get_deadline().isValid()) {
         sqlite3_bind_int64(stmt, 9, task.get_deadline().toSecsSinceEpoch());
     } else {
-        sqlite3_bind_null(stmt, 9);
+        sqlite3_bind_null(stmt, 9); 
     }
     sqlite3_bind_int(stmt, 10, task.get_interval().count()); ///< interval_hours
     if (task.get_end_date().isValid()) {
@@ -297,22 +304,40 @@ void DatabaseManager::saveTemplate(const TaskTemplate& tmpl) {
     sqlite3_finalize(stmt);
 }
 
-std::vector<TaskTemplate> DatabaseManager::getAllTemplates() {
-    std::vector<TaskTemplate> templates;
-    const std::string sql = "SELECT title, description, interval_hours FROM templates;";
+std::vector<std::string> DatabaseManager::getAllChatIds() {
+    std::vector<std::string> chat_ids;
+    const std::string sql = "SELECT chat_id FROM telegram_chats;";
     sqlite3_stmt* stmt = nullptr;
+    
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
-    throwOnError(rc, "prepare SELECT templates");
+    throwOnError(rc, "prepare SELECT chat_ids");
     
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        std::string title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        std::string desc = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-        int interval = sqlite3_column_int(stmt, 2);
-        templates.emplace_back(title, desc, interval);
+        chat_ids.push_back(
+            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))
+        );
     }
-    
     sqlite3_finalize(stmt);
-    return templates;
+    return chat_ids;
+}
+
+std::vector<Task> DatabaseManager::getAllTasks(const std::string& table_name, const std::function<Task(sqlite3_stmt*)>& rowMapper) {
+    std::vector<Task> tasks;
+    if (!tableExists("tasks")) {
+        throw std::runtime_error("Таблица 'tasks' не существует.");
+    }
+    const std::string sql = "SELECT * FROM tasks;";
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    throwOnError(rc, "prepare SELECT tasks");
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        tasks.push_back(mapTaskFromRow(stmt));
+    }
+    if (rc != SQLITE_DONE) {
+        throwOnError(rc, "fetch tasks");
+    }
+    sqlite3_finalize(stmt);
+    return tasks;
 }
 
 std::pair<int, int> DatabaseManager::getTaskStats() {
@@ -335,6 +360,24 @@ std::pair<int, int> DatabaseManager::getTaskStats() {
     sqlite3_finalize(stmt);
 
     return {completed, pending};
+}
+
+std::vector<TaskTemplate> DatabaseManager::getAllTemplates() {
+    std::vector<TaskTemplate> templates;
+    const std::string sql = "SELECT title, description, interval_hours FROM templates;";
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    throwOnError(rc, "prepare SELECT templates");
+    
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        std::string title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        std::string desc = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        int interval = sqlite3_column_int(stmt, 2);
+        templates.emplace_back(title, desc, interval);
+    }
+    
+    sqlite3_finalize(stmt);
+    return templates;
 }
 
 void DatabaseManager::saveChatId(const std::string& chat_id) {
@@ -364,23 +407,6 @@ void DatabaseManager::saveChatId(const std::string& chat_id) {
         std::cerr << "[ERROR] DatabaseManager::saveChatId: " << e.what() << std::endl;
         throw;
     }
-}
-
-std::vector<std::string> DatabaseManager::getAllChatIds() {
-    std::vector<std::string> chat_ids;
-    const std::string sql = "SELECT chat_id FROM telegram_chats;";
-    sqlite3_stmt* stmt = nullptr;
-    
-    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
-    throwOnError(rc, "prepare SELECT chat_ids");
-    
-    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        chat_ids.push_back(
-            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))
-        );
-    }
-    sqlite3_finalize(stmt);
-    return chat_ids;
 }
 
 void DatabaseManager::unlinkAllAccounts() {
