@@ -5,12 +5,34 @@
 #include <stdexcept>
 #include <cstring>
 
-Task::Task(const std::string& title, const std::string& description)
-    : title_(title), description_(description), is_completed_(false), interval_(std::chrono::hours(0))
+Task::Task(const std::string& title, const std::string& description, Type type, QDateTime deadline, std::chrono::hours interval, QDateTime endDate)
+    : title_(title),
+      description_(description),
+      type_(type),
+      deadline_(deadline),
+      interval_(interval),
+      endDate_(endDate),
+      is_completed_(false),
+      tracker_() 
 {
-    // Check for empty title
     if (title.empty()) {
-        throw std::invalid_argument("Title cannot be empty");
+        throw std::invalid_argument("Заголовок задачи не может быть пустым.");
+    }
+
+    if (type_ == Type::Deadline) {
+        if (!deadline_.isValid()) {
+            throw std::invalid_argument("Некорректный дедлайн.");
+        }
+    }
+
+    if (type_ == Type::Recurring) {
+        if (interval_.count() <= 0) {
+            throw std::invalid_argument("Интервал для периодической задачи должен быть положительным.");
+        }
+    }
+
+    if (endDate_.isValid() && endDate_ <= QDateTime::currentDateTime()) {
+        throw std::invalid_argument("Дата окончания должна быть в будущем.");
     }
 
     ///< Generate id
@@ -80,8 +102,6 @@ void Task::set_description(const std::string& description) {
 void Task::mark_execution(const PeriodicTracker::TimePoint& timestamp) {
     if (is_recurring_) {
         tracker_.mark_execution(timestamp);
-    } else {
-        mark_completed(true);
     }
 }
 
@@ -102,4 +122,66 @@ void Task::set_recurring(bool status) noexcept {
 
 bool Task::is_recurring() const noexcept { 
     return is_recurring_; 
+}
+
+void Task::set_deadline(const QDateTime& deadline) {
+    if (type_ == Type::Deadline) {
+        if (deadline.isValid() && deadline >= QDateTime::currentDateTime()) {
+            deadline_ = deadline;
+        } else {
+            throw std::invalid_argument("Некорректный дедлайн");
+        }
+    } else {
+        deadline_ = QDateTime();
+    }
+}
+
+void Task::set_end_date(const QDateTime& endDate) {
+    endDate_ = endDate;
+}
+
+Task::Type Task::get_type() const noexcept {
+    return type_;
+}
+
+QDateTime Task::get_deadline() const noexcept {
+    return deadline_;
+}
+
+QDateTime Task::get_end_date() const noexcept {
+    return endDate_;
+}
+
+void Task::set_type(Type new_type) {
+    type_ = new_type;
+}
+
+void Task::set_type(Type new_type, const QDateTime& deadline, std::chrono::hours interval, const QDateTime& end_date) {
+    switch (new_type) {
+        case Type::Deadline:
+            if (!deadline.isValid() || deadline < QDateTime::currentDateTime()) {
+                throw std::invalid_argument("Некорректный дедлайн.");
+            }
+            deadline_ = deadline;
+            interval_ = std::chrono::hours(0); 
+            endDate_ = QDateTime();
+            break;
+
+        case Type::Recurring:
+            if (interval.count() <= 0) {
+                throw std::invalid_argument("Интервал должен быть положительным.");
+            }
+            interval_ = interval;
+            endDate_ = end_date.isValid() ? end_date : QDateTime();
+            deadline_ = QDateTime();
+            break;
+
+        case Type::OneTime:
+            deadline_ = QDateTime();
+            interval_ = std::chrono::hours(0);
+            endDate_ = QDateTime();
+            break;
+    }
+
+    type_ = new_type;
 }

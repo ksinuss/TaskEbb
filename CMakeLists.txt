@@ -70,6 +70,7 @@ include_directories(
 
 add_library(final_project_lib STATIC
     sources/core/task.cpp
+    headers/task.hpp
     sources/core/task_template.cpp
     sources/core/periodic_tracker.cpp
     sources/core/database_manager.cpp

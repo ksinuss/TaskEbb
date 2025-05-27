@@ -111,42 +111,91 @@ void MainWindow::initUI() {
      .arg(palette.color(QPalette::Highlight).name()));
 }
 
-
 void MainWindow::onAddButtonClicked() {
-    QString title = titleInput->text();
-    QString description = descInput->toPlainText();
-    int interval = intervalInput->value();
-
-    if (title.isEmpty()) {
-        QMessageBox::warning(this, "Ошибка", "Заголовок задачи не может быть пустым.");
-        return;
-    }
-
-    if (interval <= 0) {
-        QMessageBox::warning(this, "Ошибка", "Интервал должен быть больше 0.");
-        return;
-    }
-
     try {
-        Task task(title.toStdString(), description.toStdString());
-        task.set_interval(std::chrono::hours(interval));
-        db_.saveTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& task) {
-            sqlite3_bind_text(stmt, 1, task.get_id().c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 2, task.get_title().c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 3, task.get_description().c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(stmt, 4, task.is_completed() ? 1 : 0);
-            sqlite3_bind_int(stmt, 5, task.get_interval().count());
+        if (titleInput->text().trimmed().isEmpty()) {
+            QMessageBox::warning(this, "Ошибка", "Введите заголовок задачи!");
+            return;
+        }
+
+        Task::Type type = static_cast<Task::Type>(taskTypeCombo->currentIndex());
+        QDateTime deadline;
+        std::chrono::hours interval(0);
+        QDateTime endDate;
+
+        if (type == Task::Type::OneTime) {
+            deadline = QDateTime();
+        }
+        if (type == Task::Type::Deadline) {
+            if (!dateEdit->date().isValid()) {
+                QMessageBox::warning(this, "Ошибка", "Некорректная дата дедлайна!");
+                return;
+            }
+            if (!deadlineEdit) {
+                qCritical() << "deadlineEdit is not initialized!";
+                return;
+            }
+            deadline = deadlineEdit->dateTime();
+        }
+        if (type == Task::Type::Recurring) {
+            interval = std::chrono::hours(intervalInput->value());
+            if (endDateCheckbox->isChecked()) {
+                endDate.setDate(endDateEdit->date());
+                endDate.setTime(QTime(23, 59, 59));
+                
+                if (endDate <= QDateTime::currentDateTime()) {
+                    QMessageBox::warning(this, "Ошибка", 
+                        "Дата окончания должна быть в будущем!");
+                    return;
+                }
+            }
+        }
+
+        Task task(
+            titleInput->text().trimmed().toStdString(),
+            descInput->toPlainText().trimmed().toStdString(),
+            type,
+            deadline,
+            interval,
+            endDate
+        );
+
+        db_.saveTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
+            sqlite3_bind_text(stmt, 1, t.get_id().c_str(), -1, SQLITE_TRANSIENT); // id
+            sqlite3_bind_text(stmt, 2, t.get_title().c_str(), -1, SQLITE_TRANSIENT); // title
+            sqlite3_bind_text(stmt, 3, t.get_description().c_str(), -1, SQLITE_TRANSIENT); // description
+            sqlite3_bind_int(stmt, 4, t.is_completed() ? 1 : 0); // is_completed
+            auto first_exec = t.get_tracker().get_first_execution();
+            auto second_exec = t.get_tracker().get_second_execution();
+            sqlite3_bind_int64(stmt, 5, first_exec.has_value() ? std::chrono::system_clock::to_time_t(*first_exec) : 0);  // first_execution
+            sqlite3_bind_int64(stmt, 6, second_exec.has_value() ? std::chrono::system_clock::to_time_t(*second_exec) : 0); // second_execution
+            sqlite3_bind_int(stmt, 7, t.is_recurring() ? 1 : 0); // is_recurring
+            sqlite3_bind_int(stmt, 8, static_cast<int>(t.get_type())); // type
+            sqlite3_bind_int64(stmt, 9, t.get_deadline().toSecsSinceEpoch()); // deadline
+            sqlite3_bind_int(stmt, 10, t.get_interval().count());  // interval_hours
+            sqlite3_bind_int64(stmt, 11, t.get_end_date().toSecsSinceEpoch()); // end_date
         });
+
         tasks.push_back(task);
         addTaskToList(task);
         db_.logAction("ADD", task.get_id(), "Создана задача: " + task.get_title());
+
         titleInput->clear();
         descInput->clear();
         intervalInput->setValue(24);
+        deadlineEdit->setDateTime(QDateTime::currentDateTime());
+        endDateEdit->setDateTime(QDateTime::currentDateTime());
+        deadlineEdit->setCalendarPopup(true);
+        endDateEdit->setCalendarPopup(true);
+
+        QMetaObject::invokeMethod(this, [this]() {
+            updateStatsUI();
+        }, Qt::QueuedConnection);
+
     } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Ошибка", "Ошибка создания задачи: " + QString(e.what()));
+        QMessageBox::critical(this, "Ошибка", "Ошибка при создании задачи:\n" + QString::fromStdString(e.what()));
     } catch (...) {
-        QMessageBox::critical(this, "Ошибка", "Неизвестная ошибка");
+        QMessageBox::critical(this, "Ошибка", "Неизвестная ошибка при создании задачи");
     }
 }
 
@@ -256,8 +305,11 @@ void MainWindow::initTelegramUI() {
     
     instructionLabel = new QLabel(container);
     instructionLabel->setWordWrap(true);
+    instructionLabel->setAlignment(Qt::AlignJustify);
     
     chatIdInput = new QLineEdit(container);
+    chatIdInput->setPlaceholderText("Введите Chat ID...");
+    chatIdInput->setValidator(new QRegularExpressionValidator(QRegularExpression("\\d+"), this));
     
     saveManualButton = new QPushButton("Привязать вручную", container);
     statusLabel = new QLabel("Статус: Проверка...", container);
@@ -280,11 +332,13 @@ void MainWindow::initTelegramUI() {
     scrollArea->setWidgetResizable(true);
     
     telegramDock = new QDockWidget("Настройки Telegram", this);
+    telegramDock->setObjectName("TelegramSettingsDock");
     telegramDock->setWidget(scrollArea);
     telegramDock->setFeatures(
-        QDockWidget::DockWidgetClosable | 
-        QDockWidget::DockWidgetMovable | 
-        QDockWidget::DockWidgetFloatable);
+        QDockWidget::DockWidgetClosable |
+        QDockWidget::DockWidgetMovable |
+        QDockWidget::DockWidgetFloatable
+    );
     addDockWidget(Qt::RightDockWidgetArea, telegramDock);
     telegramDock->setVisible(false);
     
@@ -343,25 +397,52 @@ void MainWindow::loadTasksFromDB() {
     try {
         tasks = db_.getAllTasks("tasks", [](sqlite3_stmt* stmt) {
             Task task(
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description
+                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title (column 1)
+                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description (column 2)
             );
-            task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))); // id
-            task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
-            
-            int interval_hours = sqlite3_column_int(stmt, 4);
-            task.set_interval(std::chrono::hours(interval_hours));
+
+            task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));        // id (0)
+            task.mark_completed(sqlite3_column_int(stmt, 3) == 1);                           // is_completed (3)
+
+            time_t first_exec = sqlite3_column_int64(stmt, 4);
+            time_t second_exec = sqlite3_column_int64(stmt, 5);
+            if (first_exec > 0) {
+                task.mark_execution(std::chrono::system_clock::from_time_t(first_exec));
+            }
+            if (second_exec > 0) {
+                task.mark_execution(std::chrono::system_clock::from_time_t(second_exec));
+            }
+
+            task.set_recurring(sqlite3_column_int(stmt, 6) == 1);                            // is_recurring (6)
+            task.set_type(static_cast<Task::Type>(sqlite3_column_int(stmt, 7)));             // type (7)
+
+            if (sqlite3_column_type(stmt, 8) != SQLITE_NULL) {
+                qint64 deadlineSecs = sqlite3_column_int64(stmt, 8);
+                task.set_deadline(QDateTime::fromSecsSinceEpoch(deadlineSecs));
+            } else {
+                task.set_deadline(QDateTime());
+            }
+
+            task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 9)));              // interval_hours (9)
+
+            if (sqlite3_column_type(stmt, 10) != SQLITE_NULL) {
+                qint64 endDateSecs = sqlite3_column_int64(stmt, 10);
+                task.set_end_date(QDateTime::fromSecsSinceEpoch(endDateSecs));
+            }
 
             return task;
         });
 
         taskList->clear();
-
         for (const auto& task : tasks) {
             addTaskToList(task);
         }
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Ошибка", 
+            "Не удалось загрузить задачи из БД: " + QString(e.what())); // Добавьте вывод сообщения об ошибке
+        qCritical() << "Ошибка загрузки задач: " << e.what();
     } catch (...) {
-        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить задачи из БД");
+        QMessageBox::critical(this, "Ошибка", "Неизвестная ошибка при загрузке задач");
     }
 }
 
@@ -416,7 +497,6 @@ void MainWindow::initTemplateUI(QWidget* tab) {
 
     form->addRow("Название шаблона:", tmplTitleInput);
     form->addRow("Описание:", tmplDescInput);
-    form->addRow("Интервал (часы):", intervalInput);
     mainLayout->addLayout(form);
 
     QPushButton* saveTmplButton = new QPushButton("Сохранить шаблон", tab);
@@ -475,26 +555,43 @@ void MainWindow::initTemplateUI(QWidget* tab) {
 void MainWindow::initActiveTasksUI(QWidget* tab) {
     QVBoxLayout* layout = new QVBoxLayout(tab);
 
+    initTaskInputFields();
+
+    taskTypeCombo = new QComboBox();
+    taskTypeCombo->addItems({"Одноразовая", "С дедлайном", "Периодическая"});
+    
     QFormLayout* form = new QFormLayout();
+    
+    deadlineContainer->setVisible(false);
+    recurringContainer->setVisible(false);
+    
+    connect(taskTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
+        bool isOneTime = (index == 0);
+        bool isDeadline = (index == 1);
+        bool isRecurring = (index == 2);
+        
+        deadlineContainer->setVisible(isDeadline);
+        recurringContainer->setVisible(isRecurring);
+        
+        if (isOneTime) {
+            dateEdit->setDate(QDate::currentDate());
+            timeCheckbox->setChecked(false);
+            timeEdit->setTime(QTime(23, 59));
+            intervalInput->setValue(24);
+            endDateCheckbox->setChecked(false);
+        }
+    });
+
     titleInput = new QLineEdit(this);
     descInput = new QTextEdit(this);
-    
-    intervalInput = new QSpinBox(this);
-    intervalInput->setMinimum(1); ///< min val = 1h
-    intervalInput->setMaximum(24 * 365); ///< max val = year in h
-    intervalInput->setValue(24);
-    
-    QCheckBox* recurringCheckbox = new QCheckBox("Периодическая задача", this);
-    connect(recurringCheckbox, &QCheckBox::toggled, intervalInput, &QSpinBox::setEnabled);
-
     addButton = new QPushButton("Добавить задачу", this);
-    filterCombo = new QComboBox(this);
-    filterCombo->addItems({"Все задачи", "Выполненные", "Невыполненные"});
 
     form->addRow("Заголовок:", titleInput);
     form->addRow("Описание:", descInput);
-    form->addRow("Интервал (часы):", intervalInput);
-    form->addRow(recurringCheckbox); 
+
+    form->addRow("Тип задачи:", taskTypeCombo);
+    form->addRow("Дедлайн:", deadlineContainer);
+    form->addRow("Интервал:", recurringContainer);
 
     taskList = new QListWidget(tab);
     taskList->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -513,8 +610,11 @@ void MainWindow::initActiveTasksUI(QWidget* tab) {
 
     layout->addLayout(form);
     layout->addWidget(addButton);
-    layout->addWidget(filterCombo);
+    layout->addWidget(new QLabel("Фильтр:"));
+    layout->addWidget(filterCombo = new QComboBox());
     layout->addWidget(taskList);
+
+    filterCombo->addItems({"Все задачи", "Выполненные", "Невыполненные"});
 
     connect(addButton, &QPushButton::clicked, this, &MainWindow::onAddButtonClicked);
     connect(taskList, &QListWidget::itemDoubleClicked, this, &MainWindow::onTaskDoubleClicked);
@@ -522,6 +622,17 @@ void MainWindow::initActiveTasksUI(QWidget* tab) {
 }
 
 void MainWindow::initStatsUI(QWidget* tab) {
+    if (tab->layout()) {
+        QLayout* oldLayout = tab->layout();
+        while (QLayoutItem* item = oldLayout->takeAt(0)) {
+            if (QWidget* widget = item->widget()) {
+                widget->deleteLater();
+            }
+            delete item;
+        }
+        delete oldLayout;
+    }
+
     QVBoxLayout* layout = new QVBoxLayout(tab);
     
     auto [completed, pending] = db_.getTaskStats();
@@ -544,13 +655,7 @@ void MainWindow::initStatsUI(QWidget* tab) {
     layout->addWidget(chartView);
     
     QPushButton* refreshButton = new QPushButton("Обновить", this);
-    connect(refreshButton, &QPushButton::clicked, this, [this, chart]() {
-        auto [completed, pending] = db_.getTaskStats();
-        auto* series = static_cast<QPieSeries*>(chart->series().at(0));
-        series->clear();
-        series->append("Выполнено", completed)->setColor(QColor("#4CAF50"));
-        series->append("Не выполнено", pending)->setColor(QColor("#F44336"));
-    });
+    connect(refreshButton, &QPushButton::clicked, this, &MainWindow::updateStatsUI);
     
     layout->addWidget(refreshButton);
 }
@@ -619,14 +724,20 @@ void MainWindow::unlinkTelegramAccount() {
 }
 
 void MainWindow::formatTaskItem(QListWidgetItem* item, const Task& task) {
-    QString title = QString::fromStdString(task.get_title());
+    QString text = QString::fromStdString(task.get_title());
     QString interval = QString::number(task.get_interval().count()) + " ч";
 
-    if (task.is_recurring()) {
-        title += " 🔄";
+    switch (task.get_type()) {
+        case Task::Type::Deadline:
+            text += " ⏰ " + task.get_deadline().toString("dd.MM HH:mm");
+            break;
+        case Task::Type::Recurring:
+            text += " 🔄 каждые " + QString::number(task.get_interval().count()) + "ч";
+            break;
     }
 
-    item->setText(QString("%1 (%2)").arg(title).arg(interval));
+    item->setText(text);
+
     item->setCheckState(task.is_completed() ? Qt::Checked : Qt::Unchecked);
 
     QColor textColor = QApplication::palette().color(QPalette::WindowText);
@@ -638,4 +749,90 @@ void MainWindow::formatTaskItem(QListWidgetItem* item, const Task& task) {
         tooltip += "\nПериодическая задача";
     }
     item->setToolTip(tooltip);
+}
+
+void MainWindow::initTaskInputFields() {
+    setupDeadlineFields();
+
+    recurringContainer = new QWidget();
+    QVBoxLayout* recurringLayout = new QVBoxLayout(recurringContainer);
+    
+    intervalInput = new QSpinBox();
+    intervalInput->setRange(1, 8760);
+    intervalInput->setSuffix(" ч.");
+    
+    endDateCheckbox = new QCheckBox("Завершить до");
+    endDateEdit = new QDateEdit();
+    endDateEdit->setCalendarPopup(true);
+    endDateEdit->setVisible(false);
+    
+    connect(endDateCheckbox, &QCheckBox::toggled, endDateEdit, &QDateEdit::setVisible);
+    
+    recurringLayout->addWidget(new QLabel("Интервал повтора:"));
+    recurringLayout->addWidget(intervalInput);
+    recurringLayout->addWidget(endDateCheckbox);
+    recurringLayout->addWidget(endDateEdit);
+}
+
+void MainWindow::setupDeadlineFields() {
+    deadlineContainer = new QWidget();
+    QVBoxLayout* deadlineLayout = new QVBoxLayout(deadlineContainer);
+    
+    deadlineEdit = new QDateTimeEdit(QDateTime::currentDateTime(), deadlineContainer);
+    deadlineEdit->setCalendarPopup(true);
+    
+    QWidget* timeGroup = createDeadlineInputGroup();
+    deadlineLayout->addWidget(deadlineEdit);
+    deadlineLayout->addWidget(timeGroup);
+}
+
+QWidget* MainWindow::createDeadlineInputGroup() {
+    QWidget* timeContainer = new QWidget();
+    QHBoxLayout* timeLayout = new QHBoxLayout(timeContainer);
+    
+    timeCheckbox = new QCheckBox("Указать точное время");
+    timeEdit = new QTimeEdit(QTime(23, 59));
+    timeEdit->setDisplayFormat("HH:mm");
+    timeEdit->setVisible(false);
+    
+    connect(timeCheckbox, &QCheckBox::toggled, [this](bool checked) {
+        timeEdit->setVisible(checked);
+        if (!checked) timeEdit->setTime(QTime(23, 59));
+    });
+    
+    timeLayout->addWidget(timeCheckbox);
+    timeLayout->addWidget(timeEdit);
+    
+    return timeContainer;
+}
+
+void MainWindow::updateStatsUI() {
+    QWidget* statsTab = tasksTabs->widget(1);
+    QVBoxLayout* layout = qobject_cast<QVBoxLayout*>(statsTab->layout());
+    if (!layout) return;
+
+    QLayoutItem* oldItem = layout->itemAt(0);
+    if (oldItem) {
+        QWidget* oldChartView = oldItem->widget();
+        if (oldChartView) {
+            layout->removeWidget(oldChartView);
+            delete oldChartView;
+        }
+    }
+
+    auto [completed, pending] = db_.getTaskStats();
+
+    QPieSeries* series = new QPieSeries();
+    series->append("Выполнено (" + QString::number(completed) + ")", completed)->setColor(QColor("#4CAF50"));
+    series->append("Не выполнено (" + QString::number(pending) + ")", pending)->setColor(QColor("#F44336"));
+
+    QChart* chart = new QChart();
+    chart->addSeries(series);
+    chart->setTitle("Статистика выполнения задач");
+    chart->legend()->setAlignment(Qt::AlignBottom);
+
+    QChartView* chartView = new QChartView(chart);
+    chartView->setRenderHint(QPainter::Antialiasing);
+
+    layout->insertWidget(0, chartView);
 }

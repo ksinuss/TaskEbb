@@ -173,7 +173,13 @@ void TelegramBot::processMessage(const std::string& text, const std::string& cha
                 sqlite3_bind_text(stmt, 2, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
                 sqlite3_bind_text(stmt, 3, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
                 sqlite3_bind_int(stmt, 4, t.is_completed() ? 1 : 0);
-                sqlite3_bind_int(stmt, 5, t.get_interval().count());
+                sqlite3_bind_int64(stmt, 5, 0); // first_execution
+                sqlite3_bind_int64(stmt, 6, 0); // second_execution
+                sqlite3_bind_int(stmt, 7, t.is_recurring() ? 1 : 0);
+                sqlite3_bind_int(stmt, 8, static_cast<int>(t.get_type()));
+                sqlite3_bind_int64(stmt, 9, t.get_deadline().toSecsSinceEpoch());
+                sqlite3_bind_int(stmt, 10, t.get_interval().count());
+                sqlite3_bind_int64(stmt, 11, t.get_end_date().toSecsSinceEpoch());
             });
             send_message("✅ Задача добавлена: " + title, chat_id);
         } catch (const std::exception& e) {
@@ -315,8 +321,11 @@ void TelegramBot::check_reminders() {
                             sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
                             sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
                             sqlite3_bind_int(stmt, 4, t.get_interval().count());
-                            sqlite3_bind_int(stmt, 5, t.is_recurring() ? 1 : 0); // is_recurring
-                            sqlite3_bind_text(stmt, 6, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
+                            sqlite3_bind_int(stmt, 5, t.is_recurring() ? 1 : 0);
+                            sqlite3_bind_int(stmt, 6, static_cast<int>(t.get_type()));
+                            sqlite3_bind_int64(stmt, 7, t.get_deadline().toSecsSinceEpoch());
+                            sqlite3_bind_int64(stmt, 8, t.get_end_date().toSecsSinceEpoch());
+                            sqlite3_bind_text(stmt, 9, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
                         });
                     }
                 }

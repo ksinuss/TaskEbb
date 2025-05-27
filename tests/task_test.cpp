@@ -5,8 +5,22 @@
 #include <regex>
 
 TEST_CASE("ID generation and validation") {
-    Task task1("Task 1");
-    Task task2("Task 2");
+    Task task1(
+        "Task 1", 
+        "", 
+        Task::Type::OneTime,
+        QDateTime(),
+        std::chrono::hours(0),
+        QDateTime()
+    );
+    Task task2(
+        "Task 2",
+        "Описание",
+        Task::Type::Deadline,
+        QDateTime::currentDateTime().addDays(1),
+        std::chrono::hours(0),
+        QDateTime()
+    );
 
     CHECK(task1.get_id().size() == 18);
     CHECK(std::regex_match(task1.get_id(), std::regex(R"(\d{13}_\d{4})")));
@@ -15,7 +29,10 @@ TEST_CASE("ID generation and validation") {
 }
 
 TEST_CASE("Empty title throws exception") {
-    CHECK_THROWS_AS(Task(""), std::invalid_argument);
+    CHECK_THROWS_AS(
+        Task("", "", Task::Type::OneTime),
+        std::invalid_argument
+    );
 }
 
 TEST_CASE("Getters return correct values") {

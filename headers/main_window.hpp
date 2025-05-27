@@ -6,19 +6,23 @@
 #include "telegram_bot.hpp"
 #include "telegram_notifier.hpp"
 #include "config_manager.hpp"
+#include <vector>
 #include <QMainWindow>
 #include <QListWidget>
 #include <QLineEdit> 
 #include <QTextEdit>     
 #include <QComboBox>    
 #include <QPushButton> 
-#include <vector>
 #include <QSettings>
 #include <QtCharts/QChartView>
 #include <QtCharts/QPieSeries>
 #include <QStackedWidget>
 #include <QLabel>
 #include <QSpinBox>
+#include <QDateEdit>
+#include <QTimeEdit>
+#include <QCheckBox>
+#include <QHBoxLayout>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -66,6 +70,20 @@ private:
     QPushButton* unlinkButton;
     std::unique_ptr<TelegramBot> telegramBot;
     std::unique_ptr<TelegramNotifier> notifier;
+
+    QComboBox* taskTypeCombo;
+    QDateTimeEdit* deadlineEdit;
+    
+    QDateEdit* dateEdit;
+    QTimeEdit* timeEdit;
+    QCheckBox* timeCheckbox;
+    QHBoxLayout* datetimeLayout;
+    
+    QDateEdit* endDateEdit;
+    QCheckBox* endDateCheckbox;
+
+    QWidget* deadlineContainer = nullptr;
+    QWidget* recurringContainer = nullptr;
     
     void addTaskToList(const Task& task);
     void loadTasksFromDB();
@@ -84,6 +102,10 @@ private:
     void updateTelegramStatus();
     void formatTaskItem(QListWidgetItem* item, const Task& task);
     void initUI();
+    void initTaskInputFields();
+    void setupDeadlineFields();
+    QWidget* createDeadlineInputGroup();
+    void updateStatsUI();
 };
 
 #endif

@@ -4,6 +4,7 @@
 #include <string>
 #include <chrono>
 #include "periodic_tracker.hpp"
+#include <QDateTime>
 
 /**
  * @class Task
@@ -11,12 +12,20 @@
  */
 class Task {
 public:
+    enum class Type { OneTime, Deadline, Recurring };
+
     /**
      * @brief Construct a new Task object
      * @param title Task title (required)
      * @param description Task description (empty by default)
      */
-    Task(const std::string& title, const std::string& description = "");
+    Task(const std::string& title, 
+         const std::string& description = "",
+         Type type = Type::OneTime,
+         QDateTime deadline = QDateTime(),
+         std::chrono::hours interval = std::chrono::hours(0),
+         QDateTime endDate = QDateTime()
+    );
     
     ~Task() = default;
 
@@ -70,6 +79,13 @@ public:
     const PeriodicTracker& get_tracker() const noexcept;
     void set_recurring(bool status) noexcept;
     bool is_recurring() const noexcept;
+    Type get_type() const noexcept;
+    QDateTime get_deadline() const noexcept;
+    QDateTime get_end_date() const noexcept;
+    void set_deadline(const QDateTime& deadline);
+    void set_end_date(const QDateTime& endDate);
+    void set_type(Type new_type);
+    void set_type(Type new_type, const QDateTime& deadline, std::chrono::hours interval, const QDateTime& end_date);
 
 private:
     char id_[19];                   ///< Unique ID (13 digits + '_' + 4 digits + '\0')
@@ -79,6 +95,9 @@ private:
     std::chrono::hours interval_;   ///< Repetition interval in hours
     PeriodicTracker tracker_;
     bool is_recurring_ = false;
+    Type type_;
+    QDateTime deadline_;
+    QDateTime endDate_;
 };
 
 #endif

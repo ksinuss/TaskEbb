@@ -30,15 +30,21 @@ void DatabaseManager::initialize() {
         "title TEXT NOT NULL, "
         "description TEXT, "
         "is_completed INTEGER DEFAULT 0, "
-        "interval_hours INTEGER DEFAULT 0, "
         "first_execution INTEGER, "
         "second_execution INTEGER, "
-        "is_recurring BOOLEAN DEFAULT FALSE)"
+        "is_recurring BOOLEAN DEFAULT FALSE, "
+        "type INTEGER, "
+        "deadline INTEGER NULL, "
+        "interval_hours INTEGER, "
+        "end_date INTEGER"
+        ");"
     );
 
-    addColumnIfNotExists("tasks", "first_execution", "INTEGER");
-    addColumnIfNotExists("tasks", "second_execution", "INTEGER");
-    addColumnIfNotExists("tasks", "is_recurring", "BOOLEAN DEFAULT FALSE");
+    executeQuery(
+        "CREATE TABLE IF NOT EXISTS telegram_chats ("
+        "chat_id TEXT PRIMARY KEY"
+        ");"
+    );
 
     executeQuery(
         "CREATE TABLE IF NOT EXISTS templates ("
@@ -55,6 +61,14 @@ void DatabaseManager::initialize() {
         "task_id TEXT, "
         "message TEXT);"
     );
+
+    addColumnIfNotExists("tasks", "first_execution", "INTEGER");
+    addColumnIfNotExists("tasks", "second_execution", "INTEGER");
+    addColumnIfNotExists("tasks", "is_recurring", "BOOLEAN DEFAULT FALSE");
+    addColumnIfNotExists("tasks", "type", "INTEGER");
+    addColumnIfNotExists("tasks", "deadline", "INTEGER NULL");
+    addColumnIfNotExists("tasks", "interval_hours", "INTEGER");
+    addColumnIfNotExists("tasks", "end_date", "INTEGER");
 }
 
 void DatabaseManager::addColumnIfNotExists(const std::string& table, const std::string& column, const std::string& type) {
@@ -91,19 +105,20 @@ void DatabaseManager::throwOnError(int rc, const std::string& context) {
 }
 
 void DatabaseManager::executeQuery(const std::string& sql) {
+    std::cout << "[SQL] Executing: " << sql << std::endl;
     char* errMsg = nullptr;
     int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &errMsg);
     if (rc != SQLITE_OK) {
-        std::string error = errMsg ? errMsg : "unknown error";
+        std::cerr << "[SQL ERROR] " << errMsg << " (query: " << sql << ")" << std::endl;
         sqlite3_free(errMsg);
-        throw std::runtime_error("SQL error: " + error);
+        throw std::runtime_error("SQL error");
     }
 }
 
 void DatabaseManager::saveTask(const Task& task, const std::string& table_name, const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters) {
     const std::string sql = 
-        "INSERT INTO tasks (id, title, description, is_completed, interval_hours, is_recurring) "
-        "VALUES (?, ?, ?, ?, ?, ?);";
+        "INSERT INTO tasks (id, title, description, is_completed, first_execution, second_execution, is_recurring, type, deadline, interval_hours, end_date) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
     
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
@@ -120,6 +135,9 @@ void DatabaseManager::saveTask(const Task& task, const std::string& table_name, 
 
 std::vector<Task> DatabaseManager::getAllTasks(const std::string& table_name, const std::function<Task(sqlite3_stmt*)>& rowMapper) {
     std::vector<Task> tasks;
+    if (!tableExists("tasks")) {
+        throw std::runtime_error("Таблица 'tasks' не существует.");
+    }
     const std::string sql = "SELECT * FROM tasks;";
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
@@ -137,7 +155,9 @@ std::vector<Task> DatabaseManager::getAllTasks(const std::string& table_name, co
 void DatabaseManager::updateTask(const Task& task, const std::string& table_name, const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters) {
     const std::string sql = 
         "UPDATE tasks SET "
-        "title = ?, description = ?, is_completed = ?, interval_hours = ? "
+        "title = ?, description = ?, is_completed = ?, "
+        "first_execution = ?, second_execution = ?, "
+        "is_recurring = ?, type = ?, deadline = ?, interval_hours = ?, end_date = ? "
         "WHERE id = ?;";
 
     sqlite3_stmt* stmt = nullptr;
@@ -191,39 +211,70 @@ void DatabaseManager::logAction(const std::string& action_type, const std::strin
 }
 
 void DatabaseManager::bindTaskParameters(sqlite3_stmt* stmt, const Task& task) {
-    sqlite3_bind_text(stmt, 1, task.get_id().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, task.get_title().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, task.get_description().c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, task.is_completed() ? 1 : 0);
-    sqlite3_bind_int(stmt, 5, task.get_interval().count());
+    sqlite3_bind_text(stmt, 1, task.get_id().c_str(), -1, SQLITE_TRANSIENT); ///< id
+    sqlite3_bind_text(stmt, 2, task.get_title().c_str(), -1, SQLITE_TRANSIENT); ///< title
+    sqlite3_bind_text(stmt, 3, task.get_description().c_str(), -1, SQLITE_TRANSIENT); ///< description
+    sqlite3_bind_int(stmt, 4, task.is_completed() ? 1 : 0); ///< is_completed
 
     auto first_exec = task.get_tracker().get_first_execution();
     auto second_exec = task.get_tracker().get_second_execution();
     
-    sqlite3_bind_int64(stmt, 6, first_exec.has_value() ? std::chrono::system_clock::to_time_t(*first_exec) : 0);
-    sqlite3_bind_int64(stmt, 7, second_exec.has_value() ? std::chrono::system_clock::to_time_t(*second_exec) : 0);
+    sqlite3_bind_int64(stmt, 5, first_exec.has_value() ? std::chrono::system_clock::to_time_t(*first_exec) : 0);
+    sqlite3_bind_int64(stmt, 6, second_exec.has_value() ? std::chrono::system_clock::to_time_t(*second_exec) : 0);
+
+    sqlite3_bind_int(stmt, 7, task.is_recurring() ? 1 : 0); ///< is_recurring
+    sqlite3_bind_int(stmt, 8, static_cast<int>(task.get_type())); ///< type
+    if (task.get_type() == Task::Type::Deadline && task.get_deadline().isValid()) {
+        sqlite3_bind_int64(stmt, 9, task.get_deadline().toSecsSinceEpoch());
+    } else {
+        sqlite3_bind_null(stmt, 9);
+    }
+    sqlite3_bind_int(stmt, 10, task.get_interval().count()); ///< interval_hours
+    if (task.get_end_date().isValid()) {
+        sqlite3_bind_int64(stmt, 11, task.get_end_date().toSecsSinceEpoch());
+    } else {
+        sqlite3_bind_null(stmt, 11);
+    } ///< end_date
 }
 
 Task DatabaseManager::mapTaskFromRow(sqlite3_stmt* stmt) {
     Task task(
-        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title
-        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description
+        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title (индекс 1)
+        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description (индекс 2)
     );
-    
-    task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
-    task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
-    task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4)));
-    
-    if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
-        time_t first_exec = sqlite3_column_int64(stmt, 5);
+
+    task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))); // id (индекс 0)
+    task.mark_completed(sqlite3_column_int(stmt, 3) == 1); // is_completed (индекс 3)
+
+    if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
+        time_t first_exec = sqlite3_column_int64(stmt, 4);
         task.mark_execution(std::chrono::system_clock::from_time_t(first_exec));
     }
-    if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) {
-        time_t second_exec = sqlite3_column_int64(stmt, 6);
+
+    if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+        time_t second_exec = sqlite3_column_int64(stmt, 5);
         task.mark_execution(std::chrono::system_clock::from_time_t(second_exec));
     }
 
-    task.set_recurring(sqlite3_column_int(stmt, 7) == 1);
+    task.set_recurring(sqlite3_column_int(stmt, 6) == 1); // is_recurring (индекс 6)
+    Task::Type type = static_cast<Task::Type>(sqlite3_column_int(stmt, 7));
+
+    if (sqlite3_column_type(stmt, 8) != SQLITE_NULL) {
+        qint64 deadlineSecs = sqlite3_column_int64(stmt, 8);
+        if (deadlineSecs > 0) {
+            task.set_deadline(QDateTime::fromSecsSinceEpoch(deadlineSecs));
+        } else {
+            task.set_deadline(QDateTime());
+        }
+    } else {
+        task.set_deadline(QDateTime());
+    }
+
+    task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 9))); // interval_hours (индекс 9)
+
+    if (sqlite3_column_type(stmt, 10) != SQLITE_NULL) {
+        task.set_end_date(QDateTime::fromSecsSinceEpoch(sqlite3_column_int64(stmt, 10)));
+    }
 
     return task;
 }
@@ -338,4 +389,18 @@ void DatabaseManager::unlinkAllAccounts() {
 
 void DatabaseManager::deleteAllChatIds() {
     executeQuery("DELETE FROM telegram_chats;");
+}
+
+bool DatabaseManager::tableExists(const std::string& tableName) {
+    std::string sql = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        throw std::runtime_error("Ошибка проверки существования таблицы.");
+    }
+    sqlite3_bind_text(stmt, 1, tableName.c_str(), -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    bool exists = (rc == SQLITE_ROW && sqlite3_column_int(stmt, 0) > 0);
+    sqlite3_finalize(stmt);
+    return exists;
 }
