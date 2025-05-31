@@ -5,7 +5,28 @@
 #include <stdexcept>
 #include <cstring>
 
-Task::Task(const std::string& title, const std::string& description, Type type, QDateTime deadline, std::chrono::hours interval, QDateTime endDate)
+Task::Task() : type_(OneTime), status_(Active), is_completed_(false), interval_(0), is_recurring_(false) {
+    auto now = std::chrono::system_clock::now();
+    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    
+    std::snprintf(id_, sizeof(id_), "TEMP_%lld", static_cast<long long>(millis));
+}
+
+Task::Task(const std::string& title, const std::string& description)
+    : title_(title),
+      description_(description),
+      type_(Type::OneTime),
+      status_(Active),
+      is_completed_(false),
+      interval_(0),
+      is_recurring_(false)
+{
+    auto now = std::chrono::system_clock::now();
+    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    std::snprintf(id_, sizeof(id_), "TEMP_%lld", static_cast<long long>(millis));
+}
+
+Task::Task(const std::string& title, const std::string& description, Type type, const QDateTime& deadline, std::chrono::hours interval, const QDateTime& endDate)
     : title_(title),
       description_(description),
       type_(type),
@@ -13,7 +34,8 @@ Task::Task(const std::string& title, const std::string& description, Type type, 
       interval_(interval),
       endDate_(endDate),
       is_completed_(false),
-      tracker_() 
+      tracker_(),
+      is_recurring_(type == Recurring)
 {
     if (title.empty()) {
         throw std::invalid_argument("Заголовок задачи не может быть пустым.");
@@ -145,6 +167,10 @@ Task::Type Task::get_type() const noexcept {
     return type_;
 }
 
+Task::Status Task::get_status() const noexcept {
+    return status_;
+}
+
 QDateTime Task::get_deadline() const noexcept {
     return deadline_;
 }
@@ -153,36 +179,55 @@ QDateTime Task::get_end_date() const noexcept {
     return endDate_;
 }
 
-void Task::set_type(Type new_type) {
-    type_ = new_type;
+void Task::set_type(Type type) {
+    if (type < Type::OneTime || type > Type::Recurring) {
+        throw std::invalid_argument("Invalid task type");
+    }
+    type_ = type;
 }
 
-void Task::set_type(Type new_type, const QDateTime& deadline, std::chrono::hours interval, const QDateTime& end_date) {
-    switch (new_type) {
-        case Type::Deadline:
-            if (!deadline.isValid() || deadline < QDateTime::currentDateTime()) {
-                throw std::invalid_argument("Некорректный дедлайн.");
-            }
-            deadline_ = deadline;
-            interval_ = std::chrono::hours(0); 
-            endDate_ = QDateTime();
-            break;
-        case Type::Recurring:
-            if (interval.count() <= 0) {
-                throw std::invalid_argument("Интервал должен быть положительным.");
-            }
-            interval_ = interval;
-            endDate_ = end_date.isValid() ? end_date : QDateTime();
-            deadline_ = QDateTime();
-            is_recurring_ = true;
-            tracker_.mark_execution(std::chrono::system_clock::now());
-            break;
-        case Type::OneTime:
-            deadline_ = QDateTime();
-            interval_ = std::chrono::hours(0);
-            endDate_ = QDateTime();
-            break;
+void Task::set_status(Status status) {
+    if (status < Status::Active || status > Status::Archived) {
+        throw std::invalid_argument("Invalid task status");
     }
+    status_ = status;
+}
 
-    type_ = new_type;
+bool Task::is_valid() const {
+    switch (type_) {
+        case Deadline:
+            return deadline_.isValid() && deadline_ > QDateTime::currentDateTime();
+        case Recurring:
+            if (interval_.count() <= 0) return false;
+            if (endDate_.isValid() && endDate_ < QDateTime::currentDateTime()) {
+                return false;
+            }
+            return true;
+        default: ///< OneTime
+            return true;
+    }
+}
+
+QString Task::validation_error() const {
+    switch (type_) {
+        case Deadline:
+            if (!deadline_.isValid()) 
+                return "Некорректная дата/время дедлайна";
+            if (deadline_ < QDateTime::currentDateTime()) 
+                return "Дедлайн не может быть в прошлом";
+            return "";
+        case Recurring:
+            if (interval_.count() <= 0) 
+                return "Интервал должен быть положительным";
+            if (endDate_.isValid() && endDate_ < QDateTime::currentDateTime()) 
+                return "Дата окончания не может быть в прошлом";
+            if (endDate_.isValid() && 
+                QDateTime::currentDateTime().daysTo(endDate_) < interval_.count() / 24) 
+            {
+                return "Период должен быть больше интервала повторений";
+            }
+            return "";
+        default:
+            return "";
+    }
 }

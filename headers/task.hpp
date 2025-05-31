@@ -5,6 +5,7 @@
 #include <chrono>
 #include "periodic_tracker.hpp"
 #include <QDateTime>
+#include <QString>
 
 /**
  * @class Task
@@ -12,19 +13,31 @@
  */
 class Task {
 public:
-    enum class Type { OneTime, Deadline, Recurring };
+    enum Type { 
+        OneTime = 0, 
+        Deadline = 1, 
+        Recurring = 2 
+    };
+
+    enum Status {
+        Active = 0,
+        Completed = 1,
+        Archived = 2
+    };
 
     /**
      * @brief Construct a new Task object
      * @param title Task title (required)
      * @param description Task description (empty by default)
      */
+    Task();
+    Task(const std::string& title, const std::string& description);
     Task(const std::string& title, 
-         const std::string& description = "",
-         Type type = Type::OneTime,
-         QDateTime deadline = QDateTime(),
-         std::chrono::hours interval = std::chrono::hours(0),
-         QDateTime endDate = QDateTime()
+        const std::string& description,
+        Type type,
+        const QDateTime& deadline = QDateTime(),
+        std::chrono::hours interval = std::chrono::hours(0),
+        const QDateTime& endDate = QDateTime()
     );
     
     ~Task() = default;
@@ -80,12 +93,15 @@ public:
     void set_recurring(bool status) noexcept;
     bool is_recurring() const noexcept;
     Type get_type() const noexcept;
+    Status get_status() const noexcept;
     QDateTime get_deadline() const noexcept;
     QDateTime get_end_date() const noexcept;
     void set_deadline(const QDateTime& deadline);
     void set_end_date(const QDateTime& endDate);
-    void set_type(Type new_type);
-    void set_type(Type new_type, const QDateTime& deadline, std::chrono::hours interval, const QDateTime& end_date);
+    void set_type(Type type);
+    void set_status(Status status);
+    bool is_valid() const;
+    QString validation_error() const;
 
 private:
     char id_[19];                   ///< Unique ID (13 digits + '_' + 4 digits + '\0')
@@ -96,6 +112,7 @@ private:
     PeriodicTracker tracker_;
     bool is_recurring_ = false;
     Type type_;
+    Status status_ = Active;
     QDateTime deadline_;
     QDateTime endDate_;
 };

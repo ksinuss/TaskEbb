@@ -40,3 +40,10 @@ const std::optional<PeriodicTracker::TimePoint>& PeriodicTracker::get_first_exec
 const std::optional<PeriodicTracker::TimePoint>& PeriodicTracker::get_second_execution() const noexcept {
     return second_execution_;
 }
+
+std::optional<PeriodicTracker::TimePoint> PeriodicTracker::get_last_execution() const noexcept {
+    if (second_execution_.has_value()) {
+        return second_execution_;
+    }
+    return first_execution_;
+}

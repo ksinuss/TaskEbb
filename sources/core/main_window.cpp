@@ -123,22 +123,24 @@ void MainWindow::onAddButtonClicked() {
         std::chrono::hours interval(0);
         QDateTime endDate;
 
-        if (type == Task::Type::OneTime) {
-            deadline = QDateTime();
-        }
         if (type == Task::Type::Deadline) {
             QDate date = dateEdit->date();
             QTime time = timeCheckbox->isChecked() ? timeEdit->time() : QTime(23, 59);
             deadline = QDateTime(date, time);
-            
-            if (!deadline.isValid() || deadline < QDateTime::currentDateTime()) {
-                QMessageBox::warning(this, "Ошибка", "Некорректный дедлайн!");
+            if (!deadline.isValid()) {
+                QMessageBox::warning(this, "Ошибка", "Некорректная дата/время!");
+                return;
+            }
+            if (deadline < QDateTime::currentDateTime()) {
+                QMessageBox::warning(this, "Ошибка", "Дедлайн не может быть в прошлом!\n"
+                    "Текущее время: " + QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm"));
                 return;
             }
         }
+        
         if (type == Task::Type::Recurring) {
             if (intervalInput->value() <= 0) {
-                QMessageBox::warning(this, "Ошибка", "Укажите интервал!");
+                QMessageBox::warning(this, "Ошибка", "Интервал должен быть положительным!");
                 return;
             }
             interval = std::chrono::hours(intervalInput->value());
@@ -149,8 +151,16 @@ void MainWindow::onAddButtonClicked() {
                     QMessageBox::warning(this, "Ошибка", "Некорректная дата окончания!");
                     return;
                 }
-                if (endDate <= QDateTime::currentDateTime()) {
-                    QMessageBox::warning(this, "Ошибка", "Дата окончания должна быть в будущем!");
+                if (endDate < QDateTime::currentDateTime()) {
+                    QMessageBox::warning(this, "Ошибка", 
+                        "Дата окончания должна быть в будущем!\n"
+                        "Текущая дата: " + QDateTime::currentDateTime().toString("dd.MM.yyyy"));
+                    return;
+                }
+                qint64 daysToEnd = QDateTime::currentDateTime().daysTo(endDate);
+                if (daysToEnd < interval.count() / 24) {
+                    QMessageBox::warning(this, "Ошибка", 
+                        "Период должен быть больше интервала повторений!");
                     return;
                 }
             }
@@ -165,24 +175,11 @@ void MainWindow::onAddButtonClicked() {
             endDate
         );
 
-        db_.saveTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
-            sqlite3_bind_text(stmt, 1, t.get_id().c_str(), -1, SQLITE_TRANSIENT); // id
-            sqlite3_bind_text(stmt, 2, t.get_title().c_str(), -1, SQLITE_TRANSIENT); // title
-            sqlite3_bind_text(stmt, 3, t.get_description().c_str(), -1, SQLITE_TRANSIENT); // description
-            sqlite3_bind_int(stmt, 4, t.is_completed() ? 1 : 0); // is_completed
-            auto first_exec = t.get_tracker().get_first_execution();
-            auto second_exec = t.get_tracker().get_second_execution();
-            sqlite3_bind_int64(stmt, 5, first_exec.has_value() ? std::chrono::system_clock::to_time_t(*first_exec) : 0);  // first_execution
-            sqlite3_bind_int64(stmt, 6, second_exec.has_value() ? std::chrono::system_clock::to_time_t(*second_exec) : 0); // second_execution
-            sqlite3_bind_int(stmt, 7, t.is_recurring() ? 1 : 0); // is_recurring
-            sqlite3_bind_int(stmt, 8, static_cast<int>(t.get_type())); // type
-            sqlite3_bind_int64(stmt, 9, t.get_deadline().toSecsSinceEpoch()); // deadline
-            sqlite3_bind_int(stmt, 10, t.get_interval().count());  // interval_hours
-            sqlite3_bind_int64(stmt, 11, t.get_end_date().toSecsSinceEpoch()); // end_date
-        });
+        db_.saveTask(task);
 
         tasks.push_back(task);
         addTaskToList(task);
+        updateStatsUI();
         db_.logAction("ADD", task.get_id(), "Создана задача: " + task.get_title());
 
         titleInput->clear();
@@ -227,13 +224,7 @@ void MainWindow::onTaskDoubleClicked(QListWidgetItem* item) {
         task.set_description(descEdit.toPlainText().toStdString());
         
         try {
-            db_.updateTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& task) {
-                sqlite3_bind_text(stmt, 1, task.get_title().c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(stmt, 2, task.get_description().c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_int(stmt, 3, task.is_completed() ? 1 : 0);
-                sqlite3_bind_int(stmt, 4, task.get_interval().count());
-                sqlite3_bind_text(stmt, 5, task.get_id().c_str(), -1, SQLITE_TRANSIENT);
-            });
+            db_.updateTask(task);
             updateTaskInList(item, task);
             db_.logAction("EDIT", task.get_id(), "Изменена задача: " + task.get_title());
         } catch (...) {
@@ -400,43 +391,7 @@ void MainWindow::initToolbar() {
 
 void MainWindow::loadTasksFromDB() {
     try {
-        tasks = db_.getAllTasks("tasks", [](sqlite3_stmt* stmt) {
-            Task task(
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title (column 1)
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))  // description (column 2)
-            );
-
-            task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));        // id (0)
-            task.mark_completed(sqlite3_column_int(stmt, 3) == 1);                           // is_completed (3)
-
-            time_t first_exec = sqlite3_column_int64(stmt, 4);
-            time_t second_exec = sqlite3_column_int64(stmt, 5);
-            if (first_exec > 0) {
-                task.mark_execution(std::chrono::system_clock::from_time_t(first_exec));
-            }
-            if (second_exec > 0) {
-                task.mark_execution(std::chrono::system_clock::from_time_t(second_exec));
-            }
-
-            task.set_recurring(sqlite3_column_int(stmt, 6) == 1);                            // is_recurring (6)
-            task.set_type(static_cast<Task::Type>(sqlite3_column_int(stmt, 7)));             // type (7)
-
-            if (sqlite3_column_type(stmt, 8) != SQLITE_NULL) {
-                qint64 deadlineSecs = sqlite3_column_int64(stmt, 8);
-                task.set_deadline(QDateTime::fromSecsSinceEpoch(deadlineSecs));
-            } else {
-                task.set_deadline(QDateTime());
-            }
-
-            task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 9)));              // interval_hours (9)
-
-            if (sqlite3_column_type(stmt, 10) != SQLITE_NULL) {
-                qint64 endDateSecs = sqlite3_column_int64(stmt, 10);
-                task.set_end_date(QDateTime::fromSecsSinceEpoch(endDateSecs));
-            }
-
-            return task;
-        });
+        tasks = db_.getAllTasks();
 
         taskList->clear();
         for (const auto& task : tasks) {
@@ -454,6 +409,11 @@ void MainWindow::loadTasksFromDB() {
 void MainWindow::addTaskToList(const Task& task) {
     QListWidgetItem* item = new QListWidgetItem();
     
+    if (!task.is_valid()) {
+        item->setBackground(QColor(255, 200, 200));
+        item->setToolTip("НЕВАЛИДНАЯ ЗАДАЧА: " + task.validation_error());
+    }
+    
     formatTaskItem(item, task);
     
     QString taskId = QString::fromStdString(task.get_id());
@@ -461,29 +421,13 @@ void MainWindow::addTaskToList(const Task& task) {
     
     taskList->addItem(item);
 
-    connect(taskList, &QListWidget::itemChanged, this, [this, item, taskId]() {
+    connect(taskList, &QListWidget::itemChanged, [this, item, task]() {
         bool completed = (item->checkState() == Qt::Checked);
+        Task updated = task;
+        updated.mark_completed(completed);
         
-        auto it = std::find_if(tasks.begin(), tasks.end(), [taskId](const Task& t) {
-            return t.get_id() == taskId.toStdString();
-        });
-        
-        if (it != tasks.end()) {
-            it->mark_completed(completed);
-            try {
-                db_.updateTask(*it, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
-                    sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
-                    sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
-                    sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
-                    sqlite3_bind_int(stmt, 4, t.get_interval().count());
-                    sqlite3_bind_int(stmt, 5, t.is_recurring() ? 1 : 0);
-                    sqlite3_bind_text(stmt, 6, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
-                });
-                formatTaskItem(item, *it);
-            } catch (const std::exception& e) {
-                QMessageBox::critical(this, "Ошибка", "Ошибка обновления задачи: " + QString(e.what()));
-            }
-        }
+        db_.updateTask(updated);
+        formatTaskItem(item, updated);
     });
 }
 

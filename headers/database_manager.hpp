@@ -30,72 +30,35 @@ public:
 
     void initialize();
 
-    /**
-     * @brief Saves a task to the specified table.
-     * @tparam T Type of the task.
-     * @param task Task object to be saved.
-     * @param table_name Name of the target table.
-     * @param bindParameters Callback function to bind task parameters to the SQL statement.
-     */
-    void saveTask(
-        const Task& task,
-        const std::string& table_name,
-        const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters
-    );
-
-    /**
-     * @brief Retrieves all tasks from the specified table.
-     * @tparam T Type of the task.
-     * @param table_name Name of the source table.
-     * @param rowMapper Callback function to map SQL result rows to task objects.
-     * @return Vector of tasks.
-     */
-    std::vector<Task> getAllTasks(
-        const std::string& table_name,
-        const std::function<Task(sqlite3_stmt*)>& rowMapper
-    );
-
-    /**
-     * @brief Updates a task in the specified table.
-     * @tparam T Type of the task.
-     * @param task Updated task object.
-     * @param table_name Name of the target table.
-     * @param bindParameters Callback function to bind task parameters to the SQL statement.
-     */
-    void updateTask(
-        const Task& task,
-        const std::string& table_name,
-        const std::function<void(sqlite3_stmt*, const Task&)>& bindParameters
-    );
-
-    /**
-     * @brief Deletes a task by its ID.
-     * @param id Unique identifier of the task.
-     * @param table_name Name of the target table.
-     */
-    void deleteTask(const std::string& id, const std::string& table_name);
-
     void logAction(
         const std::string& action_type,
         const std::string& task_id,
         const std::string& message
     );
 
+    void saveTask(const Task& task, const std::string& table_name = "tasks");
+    void updateTask(const Task& task, const std::string& table_name = "tasks");
+    void deleteTask(const std::string& id, const std::string& table_name = "tasks");
+    Task getTaskById(const std::string& id);
+    std::vector<Task> getAllTasks(const std::string& table_name = "tasks");
+
     void saveTemplate(const TaskTemplate& tmpl);
     void deleteTemplate(const std::string& id);
     std::vector<TaskTemplate> getAllTemplates();
     std::pair<int, int> getTaskStats();
     void saveChatId(const std::string& chat_id);
-    std::vector<std::string> getAllChatIds();
+    std::vector<std::string> getAllChatIds() const;
     void unlinkAllAccounts();
     void deleteAllChatIds();
     void addColumnIfNotExists(const std::string& table, const std::string& column, const std::string& type);
     bool tableExists(const std::string& tableName);
+    std::string getFirstChatId() const;
 private:
     sqlite3* db_;  ///< SQLite database connection handle
 
-    void executeQuery(const std::string& sql);
-    void throwOnError(int rc, const std::string& context);
+    void executeQuery(const std::string& sql, const std::vector<std::string>& params = {});
+    void throwOnError(int rc, const std::string& context) const;
+    void executeTaskQuery(const std::string& sql, const Task& task);
     
     void bindTaskParameters(sqlite3_stmt* stmt, const Task& task);
     Task mapTaskFromRow(sqlite3_stmt* stmt);

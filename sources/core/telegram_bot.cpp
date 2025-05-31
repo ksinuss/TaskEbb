@@ -1,5 +1,5 @@
 #include "telegram_bot.hpp"
-#include <curl/curl.h>
+#include "curl_handle.hpp"
 #include <sstream>
 #include <algorithm>
 #include <iostream>
@@ -55,72 +55,69 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::stri
 }
 
 void TelegramBot::pollingLoop() {
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        std::cerr << "[ERROR] Failed to initialize CURL" << std::endl;
-        return;
-    }
+    try {
+        CurlHandle curl;
+        std::string response;
+        long last_update_id = 0;
 
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 25L); ///< timeout is 25 seconds
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "TaskEbbBot/1.0");
-    std::string response;
-    long last_update_id = 0;
-
-    while (running_) {
-        std::string url = "https://api.telegram.org/bot" + bot_token_ + 
-                        "/getUpdates?timeout=20&offset=" + 
-                        std::to_string(last_update_id + 1);
-
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 25L);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "TaskEbbBot/1.0");
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-        CURLcode res = curl_easy_perform(curl);
         
-        if (res != CURLE_OK) {
-            std::cerr << "[ERROR] CURL request failed: " 
-                    << curl_easy_strerror(res) << std::endl;
-            response.clear();
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-            continue;
-        }
+        while (running_) {
+            std::string url = "https://api.telegram.org/bot" + bot_token_ + 
+                "/getUpdates?timeout=20&offset=" + 
+                std::to_string(last_update_id + 1);
 
-        ///< json parsing
-        try {
-            nlohmann::json json_response = nlohmann::json::parse(response);
+            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+            CURLcode res = curl_easy_perform(curl);
             
-            if (json_response["ok"] == true) {
-                for (const auto& update : json_response["result"]) {
-                    last_update_id = update["update_id"].get<long>();
-                    
-                    if (update.contains("message") && 
-                        update["message"].contains("text")) {
+            if (res != CURLE_OK) {
+                std::cerr << "[ERROR] Polling request failed: " << curl_easy_strerror(res) << std::endl;
+                response.clear();
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                continue;
+            }
+
+            ///< json parsing
+            try {
+                nlohmann::json json_response = nlohmann::json::parse(response);
+                
+                if (json_response["ok"] == true) {
+                    for (const auto& update : json_response["result"]) {
+                        last_update_id = update["update_id"].get<long>();
                         
-                        const auto& message = update["message"];
-                        std::string chat_id = std::to_string(
-                            message["chat"]["id"].get<int64_t>()
-                        );
-                        std::string text = message["text"].get<std::string>();
-                        
-                        QMetaObject::invokeMethod(this, 
-                            [this, text, chat_id]() {
-                                processMessage(text, chat_id);
-                            },
-                            Qt::QueuedConnection
-                        );
+                        if (update.contains("message") && 
+                            update["message"].contains("text")) {
+                            
+                            const auto& message = update["message"];
+                            std::string chat_id = std::to_string(
+                                message["chat"]["id"].get<int64_t>()
+                            );
+                            std::string text = message["text"].get<std::string>();
+                            
+                            QMetaObject::invokeMethod(this, 
+                                [this, text, chat_id]() {
+                                    processMessage(text, chat_id);
+                                },
+                                Qt::QueuedConnection
+                            );
+                        }
                     }
                 }
+            } catch (const std::exception& e) {
+                std::cerr << "[ERROR] JSON parsing failed: " << e.what() 
+                        << "\nResponse: " << response << std::endl;
             }
-        } catch (const std::exception& e) {
-            std::cerr << "[ERROR] JSON parsing failed: " << e.what() 
-                    << "\nResponse: " << response << std::endl;
+
+            response.clear();
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
-
-        response.clear();
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    } catch (const std::exception& e) {
+        std::cerr << "[FATAL] Polling loop crashed: " << e.what() << std::endl;
     }
-
-    curl_easy_cleanup(curl);
     std::cout << "Polling loop stopped" << std::endl;
 }
 
@@ -168,19 +165,7 @@ void TelegramBot::processMessage(const std::string& text, const std::string& cha
         std::string description = (comma_pos != std::string::npos) ? content.substr(comma_pos + 1) : "";
         try {
             Task task(title, description);
-            db_.saveTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
-                sqlite3_bind_text(stmt, 1, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(stmt, 2, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(stmt, 3, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_int(stmt, 4, t.is_completed() ? 1 : 0);
-                sqlite3_bind_int64(stmt, 5, 0); // first_execution
-                sqlite3_bind_int64(stmt, 6, 0); // second_execution
-                sqlite3_bind_int(stmt, 7, t.is_recurring() ? 1 : 0);
-                sqlite3_bind_int(stmt, 8, static_cast<int>(t.get_type()));
-                sqlite3_bind_int64(stmt, 9, t.get_deadline().toSecsSinceEpoch());
-                sqlite3_bind_int(stmt, 10, t.get_interval().count());
-                sqlite3_bind_int64(stmt, 11, t.get_end_date().toSecsSinceEpoch());
-            });
+            db_.saveTask(task);
             send_message("✅ Задача добавлена: " + title, chat_id);
         } catch (const std::exception& e) {
             send_message("❌ Ошибка: " + std::string(e.what()), chat_id);
@@ -222,27 +207,12 @@ void TelegramBot::processMessage(const std::string& text, const std::string& cha
         }
         std::string task_id = text.substr(14);
         try {
-            auto tasks = db_.getAllTasks("tasks", [](sqlite3_stmt* stmt) {
-                Task task(
-                    reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
-                    reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))
-                );
-                task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
-                task.mark_completed(sqlite3_column_int(stmt, 3) == 1);
-                task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4)));
-                return task;
-            });
+            auto tasks = db_.getAllTasks();
             for (auto& task : tasks) {
                 if (task.get_id() == task_id) {
                     task.mark_completed(true);
                     task.mark_execution(std::chrono::system_clock::now());
-                    db_.updateTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
-                        sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
-                        sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
-                        sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
-                        sqlite3_bind_int(stmt, 4, t.get_interval().count());
-                        sqlite3_bind_text(stmt, 5, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
-                    });
+                    db_.updateTask(task);
                     send_message("✅ Задача выполнена!", chat_id);
                     break;
                 }
@@ -253,27 +223,8 @@ void TelegramBot::processMessage(const std::string& text, const std::string& cha
     }
 }
 
-void TelegramBot::send_message(const std::string& text, const std::string& chat_id) const {
-    if (text.empty()) return;
-
-    CURL* curl = curl_easy_init();
-    std::string url = "https://api.telegram.org/bot" + bot_token_ + "/sendMessage";
-    
-    char* encoded_text = curl_easy_escape(curl, text.c_str(), text.length());
-    char* encoded_chat_id = curl_easy_escape(curl, chat_id.c_str(), chat_id.length());
-    
-    std::string params = "chat_id=" + std::string(encoded_chat_id) + 
-                         "&text=" + std::string(encoded_text);
-    
-    curl_free(encoded_text);
-    curl_free(encoded_chat_id);
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, params.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L); 
-    
-    curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
+size_t TelegramBot::dummy_write_callback(void* buffer, size_t size, size_t nmemb, void* userp) {
+    return size * nmemb;
 }
 
 bool TelegramBot::isUserRegistered(const std::string& chat_id) const {
@@ -283,50 +234,15 @@ bool TelegramBot::isUserRegistered(const std::string& chat_id) const {
 
 void TelegramBot::check_reminders() {
     auto chatIds = db_.getAllChatIds();
-
     for (const auto& chat_id : chatIds) {
-        auto tasks = db_.getAllTasks("tasks", [](sqlite3_stmt* stmt) {
-            Task task(
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))   // description
-            );
-            task.set_id(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))); // id
-            task.mark_completed(sqlite3_column_int(stmt, 3) == 1); // is_completed
-            task.set_interval(std::chrono::hours(sqlite3_column_int(stmt, 4))); // interval
-            task.set_recurring(sqlite3_column_int(stmt, 7) == 1); // is_recurring
-
-            time_t first_exec = sqlite3_column_int64(stmt, 5);
-            time_t second_exec = sqlite3_column_int64(stmt, 6);
-            if (first_exec > 0) {
-                task.mark_execution(
-                    std::chrono::system_clock::from_time_t(first_exec)
-                );
-            }
-            if (second_exec > 0) {
-                task.mark_execution(
-                    std::chrono::system_clock::from_time_t(second_exec)
-                );
-            }
-            return task;
-        });
-
+        auto tasks = db_.getAllTasks();
         for (auto& task : tasks) {
             if (task.is_recurring()) {
                 if (auto next_time = task.get_tracker().get_next_execution_time()) {
                     if (std::chrono::system_clock::now() >= *next_time) {
                         send_message("⏰ Напоминание: " + task.get_title(), chat_id);
                         task.mark_execution(std::chrono::system_clock::now());
-                        db_.updateTask(task, "tasks", [](sqlite3_stmt* stmt, const Task& t) {
-                            sqlite3_bind_text(stmt, 1, t.get_title().c_str(), -1, SQLITE_TRANSIENT);
-                            sqlite3_bind_text(stmt, 2, t.get_description().c_str(), -1, SQLITE_TRANSIENT);
-                            sqlite3_bind_int(stmt, 3, t.is_completed() ? 1 : 0);
-                            sqlite3_bind_int(stmt, 4, t.get_interval().count());
-                            sqlite3_bind_int(stmt, 5, t.is_recurring() ? 1 : 0);
-                            sqlite3_bind_int(stmt, 6, static_cast<int>(t.get_type()));
-                            sqlite3_bind_int64(stmt, 7, t.get_deadline().toSecsSinceEpoch());
-                            sqlite3_bind_int64(stmt, 8, t.get_end_date().toSecsSinceEpoch());
-                            sqlite3_bind_text(stmt, 9, t.get_id().c_str(), -1, SQLITE_TRANSIENT);
-                        });
+                        db_.updateTask(task);
                     }
                 }
             } else {
@@ -336,5 +252,46 @@ void TelegramBot::check_reminders() {
                 }
             }
         }
+    }
+}
+
+bool TelegramBot::send_message(const std::string& text, const std::string& chat_id) const {
+    std::string target_chat = chat_id.empty() ? db_.getFirstChatId() : chat_id;
+    
+    if (target_chat.empty()) {
+        std::cerr << "No registered chat IDs found for sending message\n";
+        return false;
+    }
+    
+    return send_direct_message(bot_token_, target_chat, text);
+}
+
+bool TelegramBot::send_direct_message(const std::string& bot_token, const std::string& chat_id, const std::string& text) {
+    if (text.empty() || bot_token.empty() || chat_id.empty()) 
+        return false;
+
+    try {
+        CurlHandle curl;
+        std::string url = "https://api.telegram.org/bot" + bot_token + "/sendMessage";
+        
+        char* encoded_text = curl_easy_escape(curl, text.c_str(), text.length());
+        char* encoded_chat_id = curl_easy_escape(curl, chat_id.c_str(), chat_id.length());
+        
+        std::string params = "chat_id=" + std::string(encoded_chat_id) + 
+                            "&text=" + std::string(encoded_text);
+        
+        curl_free(encoded_text);
+        curl_free(encoded_chat_id);
+
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, params.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, dummy_write_callback);
+        
+        CURLcode res = curl_easy_perform(curl);
+        return (res == CURLE_OK);
+    } catch (const std::exception& e) {
+        std::cerr << "Direct message failed: " << e.what() << std::endl;
+        return false;
     }
 }

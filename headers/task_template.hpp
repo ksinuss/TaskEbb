@@ -16,6 +16,11 @@ public:
     ///< Recurrence types supported by the template
     enum class RecurrenceType { DAILY, WEEKLY, CUSTOM };
 
+    enum TemplateType {
+        PERIODIC = Task::Recurring,
+        DEADLINE_DRIVEN = Task::Deadline
+    };
+
     /**
      * @brief Construct a new Task Template object
      * @param base_task Prototype task to clone
@@ -23,7 +28,9 @@ public:
      * @param interval Custom interval in hours (for CUSTOM type, default = 24)
      * @throws std::invalid_argument if interval <= 0 for CUSTOM type
      */
-     TaskTemplate(const std::string& title, const std::string& description, int interval);
+    TaskTemplate(const std::string& title, const std::string& description, TemplateType type, int interval);
+
+    TaskTemplate(const std::string& title, const std::string& description, int interval_hours);
 
     /**
      * @brief Creating tasks before the specified time stamp
@@ -59,6 +66,7 @@ public:
 private:
     std::string title_;
     std::string description_;
+    TemplateType template_type_;
     int interval_hours_;
     Task base_task_;
     RecurrenceType recurrence_type_;

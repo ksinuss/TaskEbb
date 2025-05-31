@@ -9,80 +9,50 @@
 using namespace std::chrono_literals;
 namespace fs = std::filesystem;
 
-Task create_test_task() {
-    Task task("Test Title", "Test Description");
-    task.set_interval(24h);
-    task.mark_completed(true);
-    return task;
+TEST_CASE("Save and retrieve task") {
+    DatabaseManager db(":memory:");
+    Task task("Test task", "Description", Task::Type::OneTime);
+    
+    CHECK_NOTHROW(db.saveTask(task, "tasks"));
+    
+    auto tasks = db.getAllTasks("tasks");
+    REQUIRE(tasks.size() == 1);
+    CHECK(tasks[0].get_title() == "Test task");
 }
 
-// Deleting the test database before each run
-struct DatabaseTestFixture {
-    const std::string TEST_DB_PATH = "test_db.sqlite";
-    DatabaseTestFixture() {
-        if (fs::exists(TEST_DB_PATH)) {
-            fs::remove(TEST_DB_PATH);
-        }
-    }
-};
-
-// Parameter binding function for Task objects
-std::function<void(sqlite3_stmt*, const Task&)> bindTask = [](sqlite3_stmt* stmt, const Task& t) {
-    sqlite3_bind_text(stmt, 1, t.get_id().c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, t.get_title().c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 3, t.get_description().c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_int(stmt, 4, t.is_completed() ? 1 : 0);
-    sqlite3_bind_int(stmt, 5, static_cast<int>(t.get_interval().count()));
-};
-
-// Row-to-object mapping function for Task
-std::function<Task(sqlite3_stmt*)> rowMapper = [](sqlite3_stmt* stmt) {
-    return Task(
-        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)), // title
-        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) //description
-    );
-};
-
-TEST_CASE_FIXTURE(DatabaseTestFixture, "Save and retrieve task") {
-    DatabaseManager db(TEST_DB_PATH);
-    Task task = create_test_task();
+TEST_CASE("Update task") {
+    DatabaseManager db(":memory:");
+    Task task("Original", "Desc", Task::Type::OneTime);
     
-    CHECK_NOTHROW(db.saveTask(task, "tasks", bindTask));
+    db.saveTask(task, "tasks");
     
-    auto tasks = db.getAllTasks("tasks", rowMapper);
-    CHECK(tasks.size() == 1);
-    CHECK(tasks[0].get_title() == "Test Title");
+    task.set_title("Updated");
+    
+    CHECK_NOTHROW(db.updateTask(task, "tasks"));
+    
+    auto tasks = db.getAllTasks("tasks");
+    REQUIRE(tasks.size() == 1);
+    CHECK(tasks[0].get_title() == "Updated");
 }
 
-TEST_CASE_FIXTURE(DatabaseTestFixture, "Update task") {
-    DatabaseManager db(TEST_DB_PATH);
-    Task task = create_test_task();
+TEST_CASE("Delete task") {
+    DatabaseManager db(":memory:");
+    Task task("To delete", "", Task::Type::OneTime);
     
-    db.saveTask(task, "tasks", bindTask);
-    task.mark_completed(false);
-    db.updateTask(task, "tasks", bindTask);
+    db.saveTask(task, "tasks");
     
-    auto tasks = db.getAllTasks("tasks", rowMapper);
-    CHECK(tasks[0].is_completed() == false);
-}
-
-TEST_CASE_FIXTURE(DatabaseTestFixture, "Delete task") {
-    DatabaseManager db(TEST_DB_PATH);
-    Task task = create_test_task();
+    auto tasks_before = db.getAllTasks("tasks");
+    REQUIRE(tasks_before.size() == 1);
     
-    db.saveTask(task, "tasks", bindTask);
     db.deleteTask(task.get_id(), "tasks");
     
-    auto tasks = db.getAllTasks("tasks", rowMapper);
-    CHECK(tasks.empty());
+    auto tasks_after = db.getAllTasks("tasks");
+    CHECK(tasks_after.empty());
 }
 
-TEST_CASE_FIXTURE(DatabaseTestFixture, "Invalid operations") {
-    DatabaseManager db(TEST_DB_PATH);
+TEST_CASE("Invalid table name") {
+    DatabaseManager db(":memory:");
+    Task task("Test", "Should fail");
     
-    // Attempt to save to a non-existent table
-    CHECK_THROWS(db.saveTask(create_test_task(), "unknown_table", bindTask));
-    
-    // Attempt to delete a non-existent task
-    CHECK_NOTHROW(db.deleteTask("dummy_id", "tasks"));
+    CHECK_THROWS(db.saveTask(task, "invalid_table"));
 }

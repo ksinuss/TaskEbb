@@ -41,6 +41,7 @@ public:
 
     const std::optional<TimePoint>& get_first_execution() const noexcept;
     const std::optional<TimePoint>& get_second_execution() const noexcept;
+    std::optional<TimePoint> get_last_execution() const noexcept;
 
 private:
     std::optional<TimePoint> first_execution_;

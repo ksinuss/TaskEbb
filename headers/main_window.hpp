@@ -4,7 +4,6 @@
 #include "task.hpp"
 #include "database_manager.hpp"
 #include "telegram_bot.hpp"
-#include "telegram_notifier.hpp"
 #include "config_manager.hpp"
 #include <vector>
 #include <QMainWindow>
@@ -69,7 +68,6 @@ private:
     QPushButton* saveManualButton;
     QPushButton* unlinkButton;
     std::unique_ptr<TelegramBot> telegramBot;
-    std::unique_ptr<TelegramNotifier> notifier;
 
     QComboBox* taskTypeCombo;
     QDateTimeEdit* deadlineEdit;

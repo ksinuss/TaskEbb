@@ -2,8 +2,20 @@
 #include "task.hpp"
 #include <cmath>
 
-TaskTemplate::TaskTemplate(const std::string& title, const std::string& description, int interval)
-    : base_task_(title, description), recurrence_type_(RecurrenceType::CUSTOM), custom_interval_hours_(interval), last_generated_(0) 
+TaskTemplate::TaskTemplate(const std::string& title, const std::string& description, TemplateType type, int interval)
+    : base_task_(title, description, static_cast<Task::Type>(type)),
+      template_type_(type),
+      recurrence_type_(RecurrenceType::CUSTOM),
+      custom_interval_hours_(interval), 
+      last_generated_(0)  
+{}
+
+TaskTemplate::TaskTemplate(const std::string& title, const std::string& description, int interval_hours)
+    : base_task_(title, description, Task::Type::Recurring),
+      template_type_(TemplateType::PERIODIC),
+      recurrence_type_(RecurrenceType::CUSTOM),
+      custom_interval_hours_(interval_hours),
+      last_generated_(0) 
 {}
 
 std::vector<Task> TaskTemplate::generate_tasks(time_t up_to_timestamp) const {
@@ -40,7 +52,6 @@ time_t TaskTemplate::get_step() const {
     }
 }
 
-///< Getters implementation
 time_t TaskTemplate::get_last_generation_time() const noexcept {
     return last_generated_;
 }

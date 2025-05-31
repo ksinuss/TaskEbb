@@ -44,14 +44,14 @@ TEST_CASE("Getters return correct values") {
 }
 
 TEST_CASE("Setting interval works correctly") {
-    Task task("Learn C++");
+    Task task("Learn C++", "");
     task.set_interval(std::chrono::hours(72));
 
     CHECK(task.get_interval() == std::chrono::hours(72));
 }
 
 TEST_CASE("Marking task as completed") {
-    Task task("Read a book");
+    Task task("Read a book", "");
     task.mark_completed(true);
 
     CHECK(task.is_completed());

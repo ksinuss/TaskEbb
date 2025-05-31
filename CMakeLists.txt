@@ -78,9 +78,9 @@ add_library(final_project_lib STATIC
     headers/main_window.hpp
     sources/core/telegram_bot.cpp
     headers/telegram_bot.hpp
-    sources/core/telegram_notifier.cpp
     sources/core/config_manager.cpp
     headers/config_manager.hpp
+    sources/core/curl_handle.cpp
 )
 
 target_link_libraries(final_project_lib PRIVATE 
