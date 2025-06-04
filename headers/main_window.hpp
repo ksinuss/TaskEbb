@@ -72,12 +72,12 @@ private:
     QComboBox* taskTypeCombo;
     QDateTimeEdit* deadlineEdit;
     
-    QDateEdit* dateEdit;
-    QTimeEdit* timeEdit;
+    QDateEdit* dateEdit = nullptr;
+    QTimeEdit* timeEdit = nullptr;
     QCheckBox* timeCheckbox;
     QHBoxLayout* datetimeLayout;
     
-    QDateEdit* endDateEdit;
+    QDateEdit* endDateEdit = nullptr;
     QCheckBox* endDateCheckbox;
 
     QWidget* deadlineContainer = nullptr;

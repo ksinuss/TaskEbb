@@ -185,10 +185,15 @@ void MainWindow::onAddButtonClicked() {
         titleInput->clear();
         descInput->clear();
         intervalInput->setValue(24);
-        deadlineEdit->setDateTime(QDateTime::currentDateTime());
-        endDateEdit->setDateTime(QDateTime::currentDateTime());
-        deadlineEdit->setCalendarPopup(true);
-        endDateEdit->setCalendarPopup(true);
+        if (dateEdit) {
+            dateEdit->setDate(QDate::currentDate());
+        }
+        if (timeEdit) {
+            timeEdit->setTime(QTime(23, 59));
+        }
+        if (endDateEdit) {
+            endDateEdit->setDate(QDate::currentDate());
+        }
 
         QMetaObject::invokeMethod(this, [this]() {
             updateStatsUI();
@@ -755,6 +760,8 @@ void MainWindow::setupDeadlineFields() {
 }
 
 void MainWindow::updateStatsUI() {
+    if (!tasksTabs) return;
+
     QWidget* statsTab = tasksTabs->widget(1);
     QVBoxLayout* layout = qobject_cast<QVBoxLayout*>(statsTab->layout());
     if (!layout) return;
