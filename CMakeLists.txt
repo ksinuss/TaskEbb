@@ -26,7 +26,7 @@ if(NOT DEFINED OpenSSL_ROOT)
         "/usr/local/opt/openssl"    # macOS Homebrew
         "C:/OpenSSL"                # Windows default
         "$ENV{OPENSSL_ROOT_DIR}"    # ENV
-        "C:/msys64/mingw64"         # MSYS2
+        "P:/Tools/MSYS2/mingw64"    # MSYS2
     )
     find_path(OpenSSL_ROOT 
         NAMES include/openssl/ssl.h
@@ -38,7 +38,7 @@ find_package(OpenSSL 3.0 REQUIRED)
 if(NOT DEFINED ZLIB_ROOT)
     set(possible_zlib_paths 
         "/usr/local"                # macOS/Linux
-        "C:/msys64/mingw64"         # MSYS2
+        "P:/Tools/MSYS2/mingw64"    # MSYS2
         "$ENV{ZLIB_ROOT}"           # ENV
     )
     find_path(ZLIB_ROOT 
